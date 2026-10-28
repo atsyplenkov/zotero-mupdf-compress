@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live as GitHub issues in `atsyplenkov/zotero-pdf-compresser`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in `atsyplenkov/zotero-mupdf-compress`, driven with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
