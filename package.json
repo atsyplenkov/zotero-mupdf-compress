@@ -1,0 +1,30 @@
+{
+  "name": "zotero-mupdf-compress",
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Compress PDF attachments in Zotero with a bundled MuPDF engine.",
+  "author": "MuPDF Compress contributors",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "homepage": "https://github.com/atsyplenkov/zotero-mupdf-compress",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atsyplenkov/zotero-mupdf-compress.git"
+  },
+  "config": {
+    "addonName": "MuPDF Compress",
+    "addonID": "mupdf-compress@atsyplenkov.github.io",
+    "addonRef": "mupdf-compress",
+    "addonInstance": "MuPDFCompress",
+    "prefsPrefix": "extensions.mupdf-compress"
+  },
+  "scripts": {
+    "build": "zotero-plugin build && tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "zotero-plugin-scaffold": "0.8.2",
+    "zotero-types": "4.1.0-beta.4"
+  }
+}

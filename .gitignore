@@ -4,3 +4,10 @@ docs/adr/*
 !docs/adr/0001-session-backups-and-revert.md
 !docs/testing/
 .local-test/
+
+# Node and scaffold build output
+node_modules/
+.scaffold/
+.env
+*.tsbuildinfo
+typings/i10n.d.ts
