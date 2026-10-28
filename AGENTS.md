@@ -1,3 +1,9 @@
+MuPDF Compress is an AGPL-3.0-or-later Zotero extension. `npm run build` writes the XPI. `mise run check` runs the project checks, and CI runs that same command. A change is done when that command passes.
+
+`typings/prefs.d.ts` and `typings/i10n.d.ts` come from `npm run build`. Leave them to that command. `.scaffold/` is build output, not source.
+
+A lint exception is one path and one rule, with a reason, and it needs a human decision.
+
 ## Agent skills
 
 ### Issue tracker
