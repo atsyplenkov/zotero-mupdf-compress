@@ -3,7 +3,10 @@
  * Plugin lifecycle. Adapted from the community zotero-plugin-template v3.1.0
  * addon/bootstrap.js (AGPL-3.0-or-later), which credits Zotero's Make It Red
  * example. Only the lifecycle is reused; the plugin build is our own.
+ *
+ * Zotero calls these functions by name and supplies the unused parameters.
  */
+/* oxlint-disable no-unused-vars */
 var chromeHandle;
 
 function install(data, reason) {}
