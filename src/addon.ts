@@ -6,7 +6,6 @@ class Addon {
   public data: {
     alive: boolean;
     config: typeof config;
-    env: "development" | "production";
     initialized: boolean;
     paneID: string | null;
     mainWindows: Set<Window>;
@@ -17,7 +16,6 @@ class Addon {
     this.data = {
       alive: true,
       config,
-      env: __env__,
       initialized: false,
       paneID: null,
       mainWindows: new Set(),

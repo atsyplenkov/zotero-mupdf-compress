@@ -7,5 +7,3 @@ declare const _globalThis: {
 declare const rootURI: string;
 
 declare const addon: import("../src/addon").default;
-
-declare const __env__: "production" | "development";

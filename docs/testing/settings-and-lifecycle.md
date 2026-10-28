@@ -84,8 +84,8 @@ XPI contains `content/preferences.xhtml` with the declarative preference binding
 `prefs.js` with a blank default, and no pane script. Installed artifact:
 
 ```text
-SHA-256 5885cc226c1896e1ec9823a3217d531f5ff08a73c47121a29b961048beafd114
-size    2808 bytes
+SHA-256 e80399577676c77bdaf727fa7a7310ff7835784c81fcf594f06b40a612d64f1c
+size    2797 bytes
 ID      mupdf-compress@atsyplenkov.github.io
 version 0.1.0
 min/max 6.999 / 10.0.*
@@ -113,7 +113,7 @@ Compress navigation item was gone. The restart check reset the preference to
 blank after reading it. Each run exited normally with status 0. No unhandled
 rejection from the extension was observed. The suite ran with a workspace guard;
 the user's active workspace stayed unchanged before and after the final suite,
-seed, and restart runs (workspace 3 in the last cycle).
+seed, and restart runs (workspace 1 in the last cycle).
 
 Evidence, all local:
 
