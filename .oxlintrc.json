@@ -1,0 +1,23 @@
+{
+  "ignorePatterns": [
+    "prototype/**",
+    "prototype-tests/**",
+    "node_modules/**",
+    ".scaffold/**",
+    ".local-test/**",
+    "typings/prefs.d.ts",
+    "typings/i10n.d.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["addon/**/*.js"],
+      "globals": {
+        "APP_SHUTDOWN": "readonly",
+        "Components": "readonly",
+        "Services": "readonly",
+        "Zotero": "readonly",
+        "pref": "readonly"
+      }
+    }
+  ]
+}
