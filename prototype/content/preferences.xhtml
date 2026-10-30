@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+  <groupbox>
+    <label><html:h2>MuPDF Compress prototype</html:h2></label>
+    <description>Temporary folder changes apply on the next Zotero launch. Revert is available only during the current session.</description>
+    <html:label for="mupdf-compress-temporary-folder">Temporary folder (blank uses Zotero's temporary directory)</html:label>
+    <html:input id="mupdf-compress-temporary-folder" type="text" style="width: 100%;"/>
+    <description>Use an existing writable folder. This throwaway Linux build rejects symlinks and does not recover originals across restarts.</description>
+  </groupbox>
+</vbox>
