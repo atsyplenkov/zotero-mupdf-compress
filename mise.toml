@@ -1,0 +1,28 @@
+# Developers and CI read this file. `mise run check` is the gate.
+[tools]
+node = "26.12.1"
+hk = "2.9.0"
+pkl = "0.32.2"
+oxlint = "1.90.0"
+typos = "1.51.1"
+shellcheck = "0.11.0"
+jactionlint = "2.3.0"
+betterleaks = "1.9.0"
+osv-scanner = "2.7.0"
+"github:agent-sh/agnix" = "0.59.3"
+
+[tasks.setup]
+description = "Install npm dependencies and git hooks"
+run = ["npm ci", "hk install"]
+
+[tasks.check]
+description = "Run every check that CI runs on a change"
+run = "hk check --all"
+
+[tasks.fix]
+description = "Apply the automatic fixes hk knows are safe"
+run = "hk fix --all"
+
+[tasks.vulnerabilities]
+description = "Scan package-lock.json. Scheduled in CI, not part of check."
+run = "osv-scanner scan source --lockfile package-lock.json"

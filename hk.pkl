@@ -1,0 +1,93 @@
+amends "package://github.com/jdx/hk/releases/download/v2.9.0/hk@2.9.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.9.0/hk@2.9.0#/Builtins.pkl"
+
+local productJs = List(
+  "src/**/*.ts",
+  "addon/**/*.js",
+  "typings/global.d.ts",
+  "zotero-plugin.config.ts",
+)
+
+local evidence = List(
+  "prototype/**",
+  "prototype-tests/**",
+  "node_modules/**",
+  ".scaffold/**",
+  ".local-test/**",
+  "package-lock.json",
+)
+
+local fast = new Mapping<String, Step> {
+  ["oxlint"] = (Builtins.ox_lint) {
+    glob = productJs
+  }
+  ["shellcheck"] = (Builtins.shellcheck) {
+    exclude = List("prototype/**", "prototype-tests/**")
+  }
+  ["typos"] = (Builtins.typos) {
+    exclude = evidence
+  }
+  ["jactionlint"] = Builtins.jactionlint
+  ["betterleaks"] = (Builtins.betterleaks) {
+    exclude = List("node_modules/**", ".scaffold/**", ".local-test/**", "package-lock.json")
+  }
+  ["agnix"] {
+    glob = List("AGENTS.md", "docs/agents/**/*.md")
+    check = "agnix --strict {{files}}"
+  }
+  ["review-dates"] {
+    glob = List("scripts/**/*.py", "scripts/**/*.sh", "src/**", "addon/**")
+    check = "scripts/check-review-dates.sh"
+  }
+  ["versions"] {
+    glob = List("AGENTS.md", "mise.toml", "package.json")
+    check = "scripts/check-versions.sh"
+  }
+}
+
+local slow = (fast) {
+  ["typecheck"] {
+    glob = List("src/**/*.ts", "typings/**/*.ts", "tsconfig.json", "package.json")
+    check = "node_modules/.bin/tsc --noEmit -p tsconfig.json"
+  }
+  ["generated"] {
+    glob = List(
+      "addon/prefs.js",
+      "package.json",
+      "typings/prefs.d.ts",
+      "typings/i10n.d.ts",
+      "zotero-plugin.config.ts",
+    )
+    check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts"
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    steps = fast
+  }
+  ["pre-push"] {
+    steps = slow
+  }
+  ["check"] {
+    steps = slow
+  }
+  ["fix"] {
+    fix = true
+    steps {
+      ["oxlint"] = (Builtins.ox_lint) {
+        glob = productJs
+      }
+      ["typos"] = (Builtins.typos) {
+        exclude = evidence
+      }
+    }
+  }
+  ["commit-msg"] {
+    steps {
+      ["commitlint"] {
+        check = "node_modules/.bin/commitlint --edit {{commit_msg_file}}"
+      }
+    }
+  }
+}
