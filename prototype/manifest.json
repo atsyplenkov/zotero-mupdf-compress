@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "MuPDF Compress (throwaway Linux prototype)",
+  "version": "0.0.1",
+  "description": "Ticket #9: single-attachment compression and session-only Revert. Not a release.",
+  "author": "MuPDF Compress contributors",
+  "applications": {
+    "zotero": {
+      "id": "mupdf-compress-prototype@zotero.local",
+      "update_url": "https://example.invalid/mupdf-compress-prototype/updates.json",
+      "strict_min_version": "6.999",
+      "strict_max_version": "10.0.*"
+    }
+  }
+}
