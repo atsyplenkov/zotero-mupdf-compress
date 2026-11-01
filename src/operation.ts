@@ -4,18 +4,30 @@ import { CLEAN, documentInfo, extractNative, nativeRun, validate } from "./engin
 import { Feedback, closeFeedbackForWindow } from "./feedback";
 import { attachmentPath, checkNoSymlinks, fail, fileHash, join, loadModule, localFile, log, uuid } from "./files";
 import { type Lock, cleanSession, initSession, releaseLock } from "./session";
+import { eligible } from "./target";
 import type { Action, Changed, OperationApi, Outcome, SessionRecord, StartupDiagnostic, UiErrorDiagnostic } from "./types";
 
 export type { OperationApi } from "./types";
 
-function eligible(item: Zotero.Item): boolean {
-  return !!(
-    item &&
-    item.isAttachment() &&
-    item.attachmentContentType === "application/pdf" &&
-    (item.isStoredFileAttachment() || item.isLinkedFileAttachment())
-  );
-}
+const ENGINE_FAILURE = "The bundled PDF engine could not run or finish. The attachment was not changed. See the log for technical details.";
+const UNKNOWN_FAILURE = "The operation could not finish. The attachment was not changed.";
+const ENGINE_CODES = ["engine-unavailable", "engine-exit", "engine-output-limit"];
+const BLOCKED_MESSAGES: Record<string, string> = {
+  open: "Close this PDF in the Zotero reader and try again. The attachment was not changed.",
+  missing: "The attachment file could not be found. Locate it in Zotero and try again. The extension did not change the attachment.",
+  encrypted: "The PDF is encrypted. The extension does not ask for a password and does not change encrypted attachments.",
+  unreadable: "The PDF could not be read by the bundled engine. The attachment was not changed.",
+  "compress-changed": "The attachment changed during compression. The extension did not replace it.",
+  "revert-changed": "Revert was blocked because the attachment changed after compression. The extension did not overwrite it.",
+  validation: "Compressed output could not be validated. The attachment was not changed.",
+  backup: "A verified session backup could not be prepared. The attachment was not changed. Check the temporary folder and try again.",
+  "backup-invalid": "The session backup is unavailable or could not be verified. The attachment was not changed.",
+  "reader-check-unavailable": "The Zotero reader state could not be checked, so the action was blocked. The attachment was not changed.",
+  "lock-unavailable": "The extension could not confirm exclusive ownership of its session folder. The attachment was not changed.",
+  "unsafe-path": "The attachment path could not be verified safely. The attachment was not changed.",
+  "symlink-path": "The attachment path could not be verified safely. The attachment was not changed.",
+  "missing-path": "The attachment path could not be verified safely. The attachment was not changed.",
+};
 
 function identity(item: Zotero.Item): string {
   return `${item.libraryID}:${item.key}`;
@@ -119,7 +131,7 @@ async function prepareOutputDirectory(path: string): Promise<string> {
   return outputDir;
 }
 
-async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome> {
+async function runOperation(item: Zotero.Item | null, action: Action): Promise<Outcome> {
   const feedback = new Feedback(item, action, state.uiErrors, () => state.stopping);
   if (!eligible(item)) {
     return finish(feedback, "ineligible", "Select exactly one stored or linked PDF attachment. This action did not change the attachment.", false, "Preparing");
@@ -135,7 +147,7 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
     return finish(
       feedback,
       state.initializationError === "engine" ? "engine" : "backup",
-      "The operation could not start. The attachment was not changed.",
+      state.initializationError === "engine" ? ENGINE_FAILURE : BLOCKED_MESSAGES.backup,
       false,
       "Preparing",
     );
@@ -212,9 +224,14 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
       stage = "Backing up";
       feedback.update(stage);
       backupPath = join(state.sessionDir, uuid() + ".pdf");
-      await IOUtils.copy(path, backupPath, { noOverwrite: true });
-      await IOUtils.setPermissions(backupPath, 0o600);
-      if (fileHash(backupPath) !== beforeHash) fail("backup");
+      try {
+        await IOUtils.copy(path, backupPath, { noOverwrite: true });
+        await IOUtils.setPermissions(backupPath, 0o600);
+        if (fileHash(backupPath) !== beforeHash) fail("backup");
+      } catch (error) {
+        if (!(error as { safeCode?: string }).safeCode) fail("backup");
+        throw error;
+      }
       await hook("afterBackup", { action, item, path, backupPath });
       if (fileHash(backupPath) !== beforeHash) fail("backup");
       record = {
@@ -235,6 +252,7 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
       stage = "Compressing";
       feedback.update(stage);
       await nativeRun(state.subprocess, mutool, [...CLEAN, backupPath, output]);
+      await hook("afterCompress", { action, item, path, backupPath, output });
       stage = "Validating";
       feedback.update(stage);
       await validate(state.subprocess, mutool, backupPath, output);
@@ -266,6 +284,13 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
     requireLock();
     if (sharedReaderOpen(path, item)) fail("open");
     if (!(await currentMatches(item, path, beforeHash))) fail(action === "Compress" ? "compress-changed" : "revert-changed");
+    if (action === "Compress") {
+      try {
+        if (fileHash(backupPath) !== beforeHash) fail("backup");
+      } catch {
+        fail("backup");
+      }
+    }
     if (!record || fileHash(output) !== intendedHash) fail("validation");
     await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
     stage = action === "Compress" ? "Replacing" : "Reverting";
@@ -290,11 +315,14 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
     await metadata(item);
     if (action === "Compress") {
       record.partial = null;
-      const saved = (record.originalSize || 0) - (record.compressedSize || 0);
+      const originalSize = record.originalSize || 0;
+      const compressedSize = record.compressedSize || 0;
+      const saved = originalSize - compressedSize;
+      const percent = originalSize ? ((100 * saved) / originalSize).toFixed(1) : "0.0";
       return finish(
         feedback,
         "success",
-        `Compressed: ${record.originalSize} bytes to ${record.compressedSize} bytes. Saved ${saved} bytes. Revert is available only during this Zotero session.`,
+        `Compressed: ${originalSize.toLocaleString()} bytes to ${compressedSize.toLocaleString()} bytes. Saved ${saved.toLocaleString()} bytes (${percent}%). Revert is available only during this Zotero session.`,
         true,
         stage,
       );
@@ -304,7 +332,7 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
     keepBackup = false;
     return finish(feedback, "success", "Original PDF restored.", true, stage);
   } catch (error) {
-    const code = (error as { safeCode?: string }).safeCode || "failure";
+    const code = (error as { safeCode?: string }).safeCode || "";
     if (retryMetadata && code !== "revert-changed" && code !== "lock-unavailable") {
       return finish(feedback, "partial", "The original PDF remains restored, but the remaining metadata update could not be completed. The verified original backup and session recovery record were retained.", false, stage);
     }
@@ -329,13 +357,13 @@ async function runOperation(item: Zotero.Item, action: Action): Promise<Outcome>
       }
       return finish(feedback, "replacement-unchanged", "File replacement failed. The attachment bytes were verified unchanged.", false, stage);
     }
-    if (code === "open") {
-      return finish(feedback, code, "Close this PDF in the Zotero reader and try again. The attachment was not changed.", false, stage);
+    if (ENGINE_CODES.includes(code)) {
+      return finish(feedback, "engine", ENGINE_FAILURE, false, stage);
     }
-    if (["missing", "compress-changed", "revert-changed", "backup", "backup-invalid", "encrypted", "reader-check-unavailable", "lock-unavailable"].includes(code)) {
-      return finish(feedback, code, "The action was blocked. The attachment was not changed.", false, stage);
+    if (BLOCKED_MESSAGES[code]) {
+      return finish(feedback, code, BLOCKED_MESSAGES[code], false, stage);
     }
-    return finish(feedback, stage === "Validating" || stage === "Inspecting input" ? "validation" : "engine", "The bundled PDF engine could not finish. The attachment was not changed.", false, stage);
+    return finish(feedback, "failure", UNKNOWN_FAILURE, false, stage);
   } finally {
     if (output) {
       try {
