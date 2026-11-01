@@ -3,11 +3,11 @@
 AGPL-3.0-or-later Zotero extension that compresses one stored or linked PDF
 attachment at a time with a bundled MuPDF engine. This checkout currently
 implements the plugin lifecycle, the Settings pane (#11), the single-attachment
-context menu and stored-PDF Compression (#12), and Revert with shared-path
-ownership and partial recovery (#17). Parent-item menus, full session cleanup,
-and distribution packaging are later tickets. The bundled engine in this
-checkout is the host build and requires GLIBC_2.43. It is not an approved
-portable baseline.
+context menu and stored-PDF Compression (#12), linked-PDF Compression (#13), and
+Revert with shared-path ownership and partial recovery (#17). Parent-item menus,
+full session cleanup, and distribution packaging are later tickets. The bundled
+engine in this checkout is the host build and requires GLIBC_2.43. It is not an
+approved portable baseline.
 
 The manifest targets Zotero 7 and newer. Only Zotero 10.0.6 has been run so far.
 
@@ -47,8 +47,9 @@ preset, retention setting, or recovery override is offered.
 
 The isolated-profile driver and host scripts are local under `.local-test/` and
 are not committed. The recorded checks and their limits are in
-[docs/testing/settings-and-lifecycle.md](docs/testing/settings-and-lifecycle.md)
-and [docs/testing/compress-one-stored-pdf.md](docs/testing/compress-one-stored-pdf.md).
+[docs/testing/settings-and-lifecycle.md](docs/testing/settings-and-lifecycle.md),
+[docs/testing/compress-one-stored-pdf.md](docs/testing/compress-one-stored-pdf.md),
+and [docs/testing/compress-one-linked-pdf.md](docs/testing/compress-one-linked-pdf.md).
 
 ## License
 
