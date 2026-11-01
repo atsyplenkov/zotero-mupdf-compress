@@ -21,10 +21,30 @@ interface WindowMenu {
 const windowMenus = new Map<Window, WindowMenu>();
 let registered: string | null = null;
 
-function invoke(action: Action, items: Zotero.Item[] | null | undefined): void {
+function windowFor(element: XULElement | undefined): MainWindow | null {
+  const win = element?.ownerDocument?.defaultView as MainWindow | null | undefined;
+  return win?.ZoteroPane ? win : null;
+}
+
+function currentItems(
+  win: MainWindow | null,
+  fallback: Zotero.Item[] | null | undefined,
+): Zotero.Item[] | null | undefined {
+  try {
+    return win?.ZoteroPane?.getSelectedItems() ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function invoke(
+  action: Action,
+  win: MainWindow | null,
+  items: Zotero.Item[] | null | undefined,
+): void {
   const operation = addon.operation;
   if (!operation) return;
-  const target = resolveTarget(items);
+  const target = resolveTarget(currentItems(win, items));
   const run = action === "Compress" ? operation.compress(target) : operation.revert(target);
   run.catch((error: unknown) => {
     log("menu", (error as { safeCode?: string }).safeCode || "action-failed");
@@ -44,6 +64,8 @@ function registerWithMenuManager(): string | null {
         onShowing(_event, context) {
           context.menuElem.id = MENU_ID;
           context.menuElem.setAttribute("label", SUBMENU_LABEL);
+          // The item context supplies the selection as context.items. Do not read
+          // context.collectionTreeRow: newer multi-row menus remove it.
           context.setVisible(!!resolveTarget(context.items));
         },
         menus: [
@@ -53,7 +75,7 @@ function registerWithMenuManager(): string | null {
               context.menuElem.setAttribute("label", "Compress");
             },
             onCommand(_event, context) {
-              invoke("Compress", context.items);
+              invoke("Compress", windowFor(context.menuElem), context.items);
             },
           },
           {
@@ -62,7 +84,7 @@ function registerWithMenuManager(): string | null {
               context.menuElem.setAttribute("label", "Revert");
             },
             onCommand(_event, context) {
-              invoke("Revert", context.items);
+              invoke("Revert", windowFor(context.menuElem), context.items);
             },
           },
         ],
@@ -86,7 +108,7 @@ function injectMenu(win: Window): void {
   for (const action of ["Compress", "Revert"] as Action[]) {
     const entry = doc.createXULElement("menuitem") as XULElement;
     entry.setAttribute("label", action);
-    const listener: EventListener = () => invoke(action, pane.getSelectedItems());
+    const listener: EventListener = () => invoke(action, main, pane.getSelectedItems());
     entry.addEventListener("command", listener);
     commands.push({ element: entry, listener });
     children.appendChild(entry);
