@@ -27,6 +27,12 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
     `${rootURI}content/scripts/mupdf-compress.js`,
     ctx,
   );
+  Zotero.MuPDFCompress.compress = (item) =>
+    Zotero.MuPDFCompress.operation.compress(item);
+  Zotero.MuPDFCompress.revert = (item) =>
+    Zotero.MuPDFCompress.operation.revert(item);
+  Zotero.MuPDFCompress.snapshot = () =>
+    Zotero.MuPDFCompress.operation.snapshot();
   await Zotero.MuPDFCompress.hooks.onStartup();
 }
 

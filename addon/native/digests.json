@@ -1,0 +1,7 @@
+{
+  "mutool": "036fc2602cfdccad54bac496a70c4385d07dc93736633d9ab6a4c308a8f532cf",
+  "session-lock": "94c573b4717829fad9f2597d350dd891616f10ed4e255d5a75b0b54d1684dcef",
+  "source": "https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-source.tar.gz",
+  "sourceSha256": "98a5c10cda20c3992cdf76ff6b2a1149c32bd79cc796d3f703230b1185b7e934",
+  "abiNote": "Host build requiring GLIBC_2.43. Not an approved distribution baseline."
+}

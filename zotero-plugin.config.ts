@@ -12,7 +12,7 @@ export default defineConfig({
   updateURL: "https://example.invalid/mupdf-compress/updates.json",
   xpiDownloadLink: "https://example.invalid/mupdf-compress/mupdf-compress.xpi",
   build: {
-    assets: ["addon/**/*.*"],
+    assets: ["addon/**/*.*", "addon/native/mutool", "addon/native/session-lock"],
     define: {
       ...pkg.config,
       author: pkg.author,

@@ -2,9 +2,11 @@
 
 AGPL-3.0-or-later Zotero extension that compresses one stored or linked PDF
 attachment at a time with a bundled MuPDF engine. This checkout currently
-implements the plugin lifecycle and the Settings pane (#11). Compression,
-context menus, session backups, the bundled engine, and distribution packaging
-are later tickets.
+implements the plugin lifecycle, the Settings pane (#11), and attachment
+Compression and Revert with shared-path ownership and partial recovery (#17).
+Context menus, full session cleanup, and distribution packaging are later tickets.
+The bundled engine in this checkout is the host build and requires GLIBC_2.43.
+It is not an approved portable baseline.
 
 The manifest targets Zotero 7 and newer. Only Zotero 10.0.6 has been run so far.
 
