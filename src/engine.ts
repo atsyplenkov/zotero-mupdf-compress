@@ -50,6 +50,24 @@ export async function nativeRun(
   args: string[],
   capture = false,
 ): Promise<string> {
+  const result = await run(subprocess, mutoolPath, args, capture, false);
+  if (result.exitCode !== 0) fail("engine-exit");
+  return result.stdout;
+}
+
+interface RunResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+
+async function run(
+  subprocess: any,
+  mutoolPath: string,
+  args: string[],
+  captureStdout: boolean,
+  captureStderr: boolean,
+): Promise<RunResult> {
   let proc: any;
   try {
     proc = await subprocess.call({
@@ -62,15 +80,15 @@ export async function nativeRun(
     try {
       await proc.stdin.close();
     } catch (error) {
+      // A short-lived child can exit before stdin is closed. Only EOF is benign.
       if ((error as { errorCode?: number }).errorCode !== subprocess.ERROR_END_OF_FILE) throw error;
     }
-    const [stdout, , result] = await Promise.all([
-      drain(proc.stdout, capture),
-      drain(proc.stderr),
+    const [stdout, stderr, result] = await Promise.all([
+      drain(proc.stdout, captureStdout),
+      drain(proc.stderr, captureStderr),
       proc.wait(),
     ]);
-    if (result.exitCode !== 0) fail("engine-exit");
-    return stdout;
+    return { stdout, stderr, exitCode: result.exitCode };
   } catch (error) {
     if (proc) {
       try {
@@ -83,12 +101,29 @@ export async function nativeRun(
   }
 }
 
-export async function documentInfo(subprocess: any, mutoolPath: string, path: string): Promise<number> {
-  const text = await nativeRun(subprocess, mutoolPath, ["info", path], true);
-  if (/Encryption object/i.test(text)) fail("encrypted");
-  const match = text.match(/^Pages:\s*(\d+)\s*$/m);
+export async function documentInfo(
+  subprocess: any,
+  mutoolPath: string,
+  path: string,
+  failure = "unreadable",
+): Promise<number> {
+  const result = await run(subprocess, mutoolPath, ["info", path], true, true);
+  // MuPDF reports a required password on stderr and prints no document details.
+  if (/cannot authenticate password/i.test(result.stderr)) fail("encrypted");
+  if (result.exitCode !== 0) fail(failure);
+  if (/Encryption object/i.test(result.stdout)) fail("encrypted");
+  const match = result.stdout.match(/^Pages:\s*(\d+)\s*$/m);
   if (!match || Number(match[1]) < 1) fail("validation");
   return Number(match[1]);
+}
+
+async function render(subprocess: any, mutoolPath: string, path: string): Promise<void> {
+  try {
+    await nativeRun(subprocess, mutoolPath, ["draw", "-r", "72", "-F", "ppm", "-o", "/dev/null", path]);
+  } catch (error) {
+    if ((error as { safeCode?: string }).safeCode === "engine-exit") fail("validation");
+    throw error;
+  }
 }
 
 export async function validate(
@@ -98,9 +133,9 @@ export async function validate(
   output: string,
 ): Promise<void> {
   if (!(await IOUtils.exists(output)) || !(await IOUtils.stat(output)).size) fail("validation");
-  if ((await documentInfo(subprocess, mutoolPath, input)) !== (await documentInfo(subprocess, mutoolPath, output))) {
+  if ((await documentInfo(subprocess, mutoolPath, input, "validation")) !== (await documentInfo(subprocess, mutoolPath, output, "validation"))) {
     fail("validation");
   }
-  await nativeRun(subprocess, mutoolPath, ["draw", "-r", "72", "-F", "ppm", "-o", "/dev/null", input]);
-  await nativeRun(subprocess, mutoolPath, ["draw", "-r", "72", "-F", "ppm", "-o", "/dev/null", output]);
+  await render(subprocess, mutoolPath, input);
+  await render(subprocess, mutoolPath, output);
 }

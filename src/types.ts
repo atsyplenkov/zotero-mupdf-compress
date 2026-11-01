@@ -42,8 +42,8 @@ export interface UiErrorDiagnostic {
 export interface OperationApi {
   ready: Promise<void>;
   hooks: Record<string, (context: Record<string, unknown>) => Promise<void> | void>;
-  compress(item: Zotero.Item): Promise<Outcome>;
-  revert(item: Zotero.Item): Promise<Outcome>;
+  compress(item: Zotero.Item | null): Promise<Outcome>;
+  revert(item: Zotero.Item | null): Promise<Outcome>;
   snapshot(): {
     ready: boolean;
     initializationError: string | null;
