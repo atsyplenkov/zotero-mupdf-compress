@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 import { config } from "../package.json";
 import hooks from "./hooks";
+import type { OperationApi } from "./operation";
 
 class Addon {
   public data: {
@@ -11,6 +12,7 @@ class Addon {
     mainWindows: Set<Window>;
   };
   public hooks: typeof hooks;
+  public operation: OperationApi | null;
 
   constructor() {
     this.data = {
@@ -21,6 +23,7 @@ class Addon {
       mainWindows: new Set(),
     };
     this.hooks = hooks;
+    this.operation = null;
   }
 }
 
