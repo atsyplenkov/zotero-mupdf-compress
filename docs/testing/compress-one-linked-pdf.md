@@ -13,7 +13,7 @@ was opened. The prototype tree was not changed.
   changes zip entry timestamps and therefore the hash even when the contents are
   equivalent.
 - Throwaway driver `mupdf-compress-linked-driver@test.invalid` version 0.1.0,
-  SHA-256 `3d39bc259dca4ba990e280bdab13874ece4a752c34d9ff60a9a9dee110da3e14`.
+  SHA-256 `5d8a830056c2e1b6fefeaf51d67cec0abd44a5d8ab7267a2706223815f6ca0da`.
 - Bundled engine: MuPDF 1.28.5, digest `036fc260…`, extracted to the profile at
   `mupdf-compress/036fc2602cfdccad/` with mode 0700. The host build still requires
   GLIBC_2.43; that is a known limitation, not an approved distribution baseline.
@@ -41,16 +41,19 @@ rules; there is no linked-specific branch in the operation.
 The privileged driver and host scripts live under `.local-test/linked-tests/` and
 are intentionally not committed, matching the earlier tickets. The driver
 refuses any profile other than `.local-test/zotero/profile`, claims one explicit
-request, and writes its report incrementally. It builds the item context menu
-with `ZoteroPane.buildItemContextMenu()` and invokes the built XUL command. That
-is the same builder and command path a right-click uses, but the popup is opened
-with a synthetic `popupshowing` event and no pointer click. This is supplemental
-integration evidence; the real-pointer acceptance boundary in #10 is not claimed
-here and remains for release acceptance.
+request, and writes its report incrementally. Most checks build the item context
+menu with `ZoteroPane.buildItemContextMenu()` and invoke the built XUL command.
+That exercises the same builder and command path a right-click uses, but the
+popup is opened with a synthetic `popupshowing` event. One check opens the real
+item popup with `openPopupAtScreen()`, opens the real `Compress PDF` submenu with
+`openMenu(true)`, and then invokes the built command. No check synthesizes a
+device pointer click, so the real-pointer acceptance boundary in #10 is not
+claimed here and remains for release acceptance.
 
 | Check | Result |
 | --- | --- |
 | One absolute linked PDF exposes `Compress PDF > Compress`/`Revert`; Compression keeps the item, key, link mode, and resolved path | pass |
+| A linked PDF compressed from the real opened item popup and submenu keeps the link and produces the same smaller output | pass |
 | The linked file shrinks from 12,816 to 1,658 bytes (87.1% saved); the session record holds the original and installed hashes, and the backup hash matches the original | pass |
 | The `itemAttachments` row keeps its `path`, `linkMode`, `syncState`, `storageModTime`, and `storageHash`; the in-memory sync state, synced hash, and synced modification time do not change | pass |
 | The linked item is absent from `getFilesToUpload()` before and after Compression | pass |
@@ -85,10 +88,10 @@ Host checks on the same artifacts:
 
 All local, not committed:
 
-- `.local-test/linked-tests/evidence-linked-final-3.json` — driver report,
-  9 checks.
+- `.local-test/linked-tests/evidence-linked-final-4.json` — driver report,
+  10 checks.
 - `.local-test/linked-tests/install-record.json` — installed artifact hashes.
-- `.local-test/zotero/logs/linked-linked-final-3.log` — application debug log.
+- `.local-test/zotero/logs/linked-linked-final-4.log` — application debug log.
 
 ## Limits
 
@@ -99,9 +102,9 @@ All local, not committed:
   exercised here.
 - Only Zotero 10.0.6 was run. The Zotero 7 manual menu-injection path is
   unexercised; it belongs to #19.
-- The menu interaction uses Zotero's real menu builder and the built XUL command,
-  not a synthesized pointer right-click. The real-pointer boundary is not
-  exercised here.
+- One menu check opens the real item popup and submenu and invokes the built
+  command; it still does not synthesize a device pointer click. The real-pointer
+  boundary is not exercised here.
 - Sync is offline. The upload check is Zotero's local upload selection, not a
   remote upload or conflict.
 - The corpus for this run is the text/vector and blank fixtures. Document
