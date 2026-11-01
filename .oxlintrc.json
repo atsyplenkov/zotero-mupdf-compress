@@ -16,7 +16,9 @@
         "Components": "readonly",
         "Services": "readonly",
         "Zotero": "readonly",
-        "pref": "readonly"
+        "document": "readonly",
+        "pref": "readonly",
+        "window": "readonly"
       }
     }
   ]
