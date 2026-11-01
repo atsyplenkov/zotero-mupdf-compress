@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml"
+        title="MuPDF Compress" orient="vertical">
+  <script src="chrome://mupdf-compress/content/progress.js"/>
+  <vbox style="padding: 16px; min-width: 320px; max-width: 560px;" flex="1">
+    <html:h3 id="action" style="margin: 0 0 8px;"/>
+    <html:div id="title" style="overflow-wrap: anywhere; margin-bottom: 12px;"/>
+    <html:div id="stage" role="status" aria-live="polite" style="font-weight: bold; margin-bottom: 8px;"/>
+    <html:div id="message" role="status" aria-live="polite" style="overflow-wrap: anywhere; line-height: 1.5;"/>
+    <hbox pack="end" style="margin-top: 16px;">
+      <button id="dismiss" label="Dismiss"/>
+    </hbox>
+  </vbox>
+</window>
