@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
+import { onMainWindowLoad as onWindowMenuLoad, onMainWindowUnload as onWindowMenuUnload, registerMenus, unregisterMenus } from "./menu";
 import { createOperation, onWindowClose, releaseOperation } from "./operation";
 
 const PANE_ID = "mupdf-compress-preferences";
@@ -7,6 +8,7 @@ const closeHandlers = new Map<Window, () => void>();
 async function onStartup(): Promise<void> {
   await Promise.all([Zotero.initializationPromise, Zotero.uiReadyPromise]);
   await releaseOperation();
+  unregisterMenus();
   addon.operation = createOperation(rootURI);
   await addon.operation.ready;
 
@@ -21,6 +23,7 @@ async function onStartup(): Promise<void> {
     src: rootURI + "content/preferences.xhtml",
   });
 
+  registerMenus();
   for (const win of Zotero.getMainWindows()) {
     onMainWindowLoad(win);
   }
@@ -36,6 +39,7 @@ function onMainWindowLoad(win: Window): void {
   };
   win.addEventListener("close", handler);
   closeHandlers.set(win, handler);
+  onWindowMenuLoad(win);
 }
 
 function onMainWindowUnload(win: Window): void {
@@ -45,6 +49,7 @@ function onMainWindowUnload(win: Window): void {
     closeHandlers.delete(win);
   }
   onWindowClose(win);
+  onWindowMenuUnload(win);
   addon.data.mainWindows.delete(win);
 }
 
@@ -56,6 +61,7 @@ async function onShutdown(): Promise<void> {
     Zotero.PreferencePanes.unregister(addon.data.paneID);
     addon.data.paneID = null;
   }
+  unregisterMenus();
   await releaseOperation();
   addon.operation = null;
   addon.data.mainWindows.clear();
