@@ -10,6 +10,11 @@ type DialogWindow = {
 };
 
 const activeFeedback = new Set<Feedback>();
+const closingWindows = new WeakSet<object>();
+
+export function markWindowClosing(win: Window): void {
+  closingWindows.add(win);
+}
 
 export function recordUiError(
   uiErrors: UiErrorDiagnostic[],
@@ -99,7 +104,7 @@ export class Feedback {
       if (this.isStopping()) return;
       if (this.win && !this.win.closed) return;
       const parent = Zotero.getMainWindow() as unknown as DialogWindow | null;
-      if (!parent || parent.closed || typeof parent.openDialog !== "function") return;
+      if (!parent || parent.closed || closingWindows.has(parent) || typeof parent.openDialog !== "function") return;
       this.parent = parent;
       this.win = parent.openDialog(
         "chrome://mupdf-compress/content/progress.xhtml",

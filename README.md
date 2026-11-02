@@ -5,9 +5,9 @@ attachment at a time with a bundled MuPDF engine. This checkout currently
 implements the plugin lifecycle, the Settings pane (#11), the single-attachment
 context menu and stored-PDF Compression (#12), linked-PDF Compression (#13), the
 parent-item menu for a sole PDF (#14), Revert with shared-path ownership and
-partial recovery (#17), and the distribution material: license, notices, build
-recipe, build record, and packaged source (#18). Session cleanup is a later
-ticket. The bundled
+partial recovery (#17), the session backup folder, ownership, and cleanup (#16),
+and the distribution material: license, notices, build recipe, build record, and
+packaged source (#18). The bundled
 engine in this checkout is the host build; `BUILD-RECORD.md` records its measured
 runtime requirements, including the GLIBC_2.43 limitation. That is not an
 approved portable baseline.
@@ -48,8 +48,11 @@ XPI; `SOURCE.md` states that requirement.
 
 Selecting MuPDF Compress in Zotero Settings shows one text field, Temporary
 folder. A blank value means Zotero's temporary directory. The folder must already
-exist and be writable. A change applies on the next Zotero launch. No quality
-preset, retention setting, or recovery override is offered.
+exist and be writable. A change applies on the next Zotero launch; the current
+session keeps its folder and backups. Session backups live in a private UUID
+directory with an OS-held lock, and a normal close removes the current session
+folder after any active operation finishes. No quality preset, retention
+setting, or recovery override is offered.
 
 ## Layout
 
@@ -58,7 +61,7 @@ preset, retention setting, or recovery override is offered.
   recipe, and the distribution license and notice files.
 - `src/` contains the TypeScript startup, main-window and pane registration, the
   context menu, target resolution, the attachment operation, the session
-  backup/lock handling, and the bundled-engine runner.
+  backup/lock/lifecycle handling, and the bundled-engine runner.
 - `scripts/check-distribution.py` checks the built XPI contents.
 - `typings/` contains the sandbox globals and generated preference typing.
   `npm run build` regenerates `typings/prefs.d.ts` and an excluded
@@ -71,7 +74,9 @@ are not committed. The recorded checks and their limits are in
 [docs/testing/settings-and-lifecycle.md](docs/testing/settings-and-lifecycle.md),
 [docs/testing/compress-one-stored-pdf.md](docs/testing/compress-one-stored-pdf.md),
 [docs/testing/compress-one-linked-pdf.md](docs/testing/compress-one-linked-pdf.md),
-[docs/testing/parent-item-menu.md](docs/testing/parent-item-menu.md), and
+[docs/testing/parent-item-menu.md](docs/testing/parent-item-menu.md),
+[docs/testing/revert-a-compressed-attachment.md](docs/testing/revert-a-compressed-attachment.md),
+[docs/testing/session-and-cleanup.md](docs/testing/session-and-cleanup.md), and
 [docs/testing/distribution.md](docs/testing/distribution.md).
 
 ## License

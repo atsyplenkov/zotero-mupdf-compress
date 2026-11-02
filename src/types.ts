@@ -48,6 +48,8 @@ export interface OperationApi {
     ready: boolean;
     initializationError: string | null;
     initializationDiagnostic: StartupDiagnostic | null;
+    lockPid: number | null;
+    lockAlive: boolean;
     records: SessionRecord[];
     busy: string[];
     busyPaths: string[];

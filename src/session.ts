@@ -8,7 +8,7 @@ const OWNER_MARKER = "MuPDF Compress session v1\n";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface Lock {
-  proc: { stdin: { close(): Promise<void> }; wait(): Promise<unknown>; kill(): void };
+  proc: { pid?: number; stdin: { close(): Promise<void> }; wait(): Promise<unknown>; kill(): void };
   alive: boolean;
 }
 
@@ -27,13 +27,13 @@ export async function acquireLock(
       arguments: [lockPath],
       stderr: "pipe",
     });
-    const diagnostic = drain(proc.stderr);
+    // Discard helper diagnostics without forwarding document data.
+    drain(proc.stderr).catch(() => {});
     if ((await proc.stdout.readString(7)) !== "LOCKED\n") fail("lock-unavailable");
     const held: Lock = { proc, alive: true };
     proc.wait().then(() => {
       held.alive = false;
     });
-    void diagnostic;
     return held;
   } catch {
     if (proc) {
@@ -95,6 +95,7 @@ export async function cleanSession(directory: string, lock: Lock): Promise<boole
     checkNoSymlinks(path);
     await IOUtils.remove(path);
   }
+  if (!lock.alive) fail("lock-lost-during-cleanup");
   const marker = join(directory, "owner.txt");
   await IOUtils.remove(marker);
   try {
@@ -127,8 +128,9 @@ export async function initSession(
   if (!localFile(selected).isDirectory()) fail("temporary-folder");
   const root = join(selected, "mupdf-compress-v1");
   checkNoSymlinks(root, true);
-  await IOUtils.makeDirectory(root, { permissions: 0o700 });
+  await IOUtils.makeDirectory(root, { permissions: 0o700, ignoreExisting: true });
   checkNoSymlinks(root);
+  if (!localFile(root).isDirectory()) fail("temporary-folder");
   for (const directory of await IOUtils.getChildren(root)) {
     if (!(await recognized(directory))) continue;
     const lock = await acquireLock(subprocess, lockHelperPath, directory);
@@ -144,7 +146,25 @@ export async function initSession(
   const sessionDir = join(root, uuid());
   await IOUtils.makeDirectory(sessionDir, { permissions: 0o700, ignoreExisting: false });
   const lock = await acquireLock(subprocess, lockHelperPath, sessionDir);
-  if (!lock) fail("lock-unavailable");
-  await IOUtils.writeUTF8(join(sessionDir, "owner.txt"), OWNER_MARKER, { mode: "create" });
+  if (!lock) {
+    try {
+      await IOUtils.remove(sessionDir);
+    } catch {
+      // Leave this fresh unowned directory rather than widening cleanup.
+    }
+    fail("lock-unavailable");
+  }
+  try {
+    await IOUtils.writeUTF8(join(sessionDir, "owner.txt"), OWNER_MARKER, { mode: "create" });
+  } catch (error) {
+    await releaseLock(lock);
+    try {
+      await IOUtils.remove(join(sessionDir, "session.lock"));
+      await IOUtils.remove(sessionDir);
+    } catch {
+      // A later startup leaves an unrecognized directory alone.
+    }
+    throw error;
+  }
   return { sessionDir, lock };
 }

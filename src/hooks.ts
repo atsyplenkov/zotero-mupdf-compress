@@ -4,12 +4,18 @@ import { createOperation, onWindowClose, releaseOperation } from "./operation";
 
 const PANE_ID = "mupdf-compress-preferences";
 const closeHandlers = new Map<Window, () => void>();
+let shutdownRegistered = false;
 
 async function onStartup(): Promise<void> {
   await Promise.all([Zotero.initializationPromise, Zotero.uiReadyPromise]);
   await releaseOperation();
   unregisterMenus();
   addon.operation = createOperation(rootURI);
+  if (!shutdownRegistered) {
+    // Zotero awaits these listeners before it closes the database and exits.
+    Zotero.addShutdownListener(() => releaseOperation());
+    shutdownRegistered = true;
+  }
   await addon.operation.ready;
 
   if (addon.data.paneID) {
@@ -51,6 +57,7 @@ function onMainWindowUnload(win: Window): void {
   onWindowClose(win);
   onWindowMenuUnload(win);
   addon.data.mainWindows.delete(win);
+  if (!addon.data.mainWindows.size) void releaseOperation();
 }
 
 async function onShutdown(): Promise<void> {

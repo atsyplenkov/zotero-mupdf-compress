@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { CLEAN, documentInfo, extractNative, nativeRun, validate } from "./engine";
-import { Feedback, closeFeedbackForWindow } from "./feedback";
+import { Feedback, closeFeedbackForWindow, markWindowClosing } from "./feedback";
 import { attachmentPath, checkNoSymlinks, fail, fileHash, join, loadModule, localFile, log, uuid } from "./files";
 import { type Lock, cleanSession, initSession, releaseLock } from "./session";
 import { eligible } from "./target";
@@ -43,6 +43,7 @@ const state: {
   lock: Lock | null;
   sessionDir: string | null;
   subprocess: any;
+  ready: Promise<void> | null;
   initialized: boolean;
   stopping: boolean;
   initializationError: string | null;
@@ -56,12 +57,15 @@ const state: {
   lock: null,
   sessionDir: null,
   subprocess: null,
+  ready: null,
   initialized: false,
   stopping: false,
   initializationError: null,
   initializationDiagnostic: null,
   uiErrors: [],
 };
+
+let releasePromise: Promise<void> | null = null;
 
 function requireLock(): void {
   if (!state.lock?.alive) fail("lock-unavailable");
@@ -292,12 +296,14 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
       }
     }
     if (!record || fileHash(output) !== intendedHash) fail("validation");
+    requireLock();
     await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
     stage = action === "Compress" ? "Replacing" : "Reverting";
     feedback.update(stage);
     attemptedReplacement = true;
     try {
       await hook("duringReplace", { action, item, path, output, intendedHash });
+      requireLock();
       await IOUtils.move(output, path);
       if (fileHash(path) !== intendedHash) fail("uncertain");
     } catch (error) {
@@ -333,6 +339,15 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
     return finish(feedback, "success", "Original PDF restored.", true, stage);
   } catch (error) {
     const code = (error as { safeCode?: string }).safeCode || "";
+    if (Zotero.Prefs.get("extensions.mupdf-compress.testMode", true) === true) {
+      const candidate = error as { name?: string; result?: number; errorCode?: number };
+      log(
+        "operation-error",
+        [candidate?.name || "Error", candidate?.result ?? candidate?.errorCode ?? "", code]
+          .map((part) => String(part).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64))
+          .join(":"),
+      );
+    }
     if (retryMetadata && code !== "revert-changed" && code !== "lock-unavailable") {
       return finish(feedback, "partial", "The original PDF remains restored, but the remaining metadata update could not be completed. The verified original backup and session recovery record were retained.", false, stage);
     }
@@ -395,27 +410,40 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
   }
 }
 
-export async function releaseOperation(): Promise<void> {
+export function releaseOperation(): Promise<void> {
   state.stopping = true;
   closeFeedbackForWindow();
-  await Promise.all(state.busy.values());
-  const lock = state.lock;
-  const sessionDir = state.sessionDir;
-  state.lock = null;
-  state.sessionDir = null;
-  if (lock?.alive && sessionDir) {
-    try {
-      await cleanSession(sessionDir, lock);
-    } catch {
-      log("shutdown", "cleanup-failed");
-    }
+  if (!releasePromise) {
+    releasePromise = (async () => {
+      if (state.ready) {
+        try {
+          await state.ready;
+        } catch {
+          // The startup failure was recorded when it happened.
+        }
+      }
+      await Promise.allSettled(state.busy.values());
+      const lock = state.lock;
+      const sessionDir = state.sessionDir;
+      state.lock = null;
+      state.sessionDir = null;
+      if (lock?.alive && sessionDir) {
+        try {
+          await cleanSession(sessionDir, lock);
+        } catch {
+          log("shutdown", "cleanup-failed");
+        }
+      }
+      await releaseLock(lock);
+      closeFeedbackForWindow();
+      state.records.clear();
+    })();
   }
-  await releaseLock(lock);
-  closeFeedbackForWindow();
-  state.records.clear();
+  return releasePromise;
 }
 
 export function onWindowClose(win: Window): void {
+  markWindowClosing(win);
   closeFeedbackForWindow(win);
 }
 
@@ -424,6 +452,7 @@ export function createOperation(root: string): OperationApi {
   state.initialized = false;
   state.initializationError = null;
   state.initializationDiagnostic = null;
+  releasePromise = null;
   const ready = (async () => {
     try {
       state.subprocess = loadModule(
@@ -459,6 +488,7 @@ export function createOperation(root: string): OperationApi {
       }
     }
   })();
+  state.ready = ready;
   return {
     ready,
     hooks: operationHooks,
@@ -468,6 +498,8 @@ export function createOperation(root: string): OperationApi {
       ready: state.initialized,
       initializationError: state.initializationError,
       initializationDiagnostic: state.initializationDiagnostic,
+      lockPid: state.lock?.proc?.pid ?? null,
+      lockAlive: state.lock?.alive ?? false,
       records: [...state.records.values()].map((record) => ({ ...record })),
       busy: [...state.busy.keys()],
       busyPaths: [...state.pathBusy.keys()],
