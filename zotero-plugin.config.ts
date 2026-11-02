@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
+import { cp, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 
@@ -8,11 +10,36 @@ export default defineConfig({
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
-  // Reserved placeholder until the distribution ticket defines a real feed.
+  // Reserved placeholder. There is no automatic-update feed.
   updateURL: "https://example.invalid/mupdf-compress/updates.json",
   xpiDownloadLink: "https://example.invalid/mupdf-compress/mupdf-compress.xpi",
   build: {
-    assets: ["addon/**/*.*", "addon/native/mutool", "addon/native/session-lock"],
+    assets: [
+      "addon/**/*.*",
+      "addon/notices/**/*",
+      "addon/native/mutool",
+      "addon/native/session-lock",
+    ],
+    hooks: {
+      "build:copyAssets": async (ctx) => {
+        const target = join(ctx.dist, "addon");
+        const source = join(target, "source");
+        await mkdir(source, { recursive: true });
+        await cp("src", join(source, "src"), { recursive: true });
+        await mkdir(join(source, "typings"), { recursive: true });
+        await cp("typings/global.d.ts", join(source, "typings", "global.d.ts"));
+        for (const name of [
+          "LICENSE",
+          "package.json",
+          "package-lock.json",
+          "tsconfig.json",
+          "zotero-plugin.config.ts",
+        ]) {
+          await cp(name, join(source, name));
+        }
+        await cp("LICENSE", join(target, "LICENSE"));
+      },
+    },
     define: {
       ...pkg.config,
       author: pkg.author,
