@@ -17,6 +17,10 @@ local evidence = List(
   "package-lock.json",
 )
 
+// Vendored license and notice text is verbatim upstream; it cannot be edited
+// to satisfy a spellchecker. This exclusion applies to check and fix modes.
+local typosExclude = evidence + List("addon/notices/**")
+
 local fast = new Mapping<String, Step> {
   ["oxlint"] = (Builtins.ox_lint) {
     glob = productJs
@@ -25,7 +29,7 @@ local fast = new Mapping<String, Step> {
     exclude = List("prototype/**", "prototype-tests/**")
   }
   ["typos"] = (Builtins.typos) {
-    exclude = evidence
+    exclude = typosExclude
   }
   ["jactionlint"] = Builtins.jactionlint
   ["betterleaks"] = (Builtins.betterleaks) {
@@ -52,13 +56,16 @@ local slow = (fast) {
   }
   ["generated"] {
     glob = List(
-      "addon/prefs.js",
+      "addon/**",
+      "src/**/*.ts",
+      "LICENSE",
       "package.json",
       "typings/prefs.d.ts",
       "typings/i10n.d.ts",
       "zotero-plugin.config.ts",
+      "scripts/check-distribution.py",
     )
-    check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts"
+    check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py"
   }
 }
 
@@ -79,7 +86,7 @@ hooks {
         glob = productJs
       }
       ["typos"] = (Builtins.typos) {
-        exclude = evidence
+        exclude = typosExclude
       }
     }
   }
