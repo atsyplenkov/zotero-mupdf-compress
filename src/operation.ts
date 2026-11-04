@@ -47,6 +47,7 @@ const state: {
   initialized: boolean;
   stopping: boolean;
   initializationError: string | null;
+  checkedTemporaryFolder: string | null;
   initializationDiagnostic: StartupDiagnostic | null;
   uiErrors: UiErrorDiagnostic[];
 } = {
@@ -61,6 +62,7 @@ const state: {
   initialized: false,
   stopping: false,
   initializationError: null,
+  checkedTemporaryFolder: null,
   initializationDiagnostic: null,
   uiErrors: [],
 };
@@ -148,6 +150,17 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
     return finish(feedback, "busy", "An operation is already running for this attachment. Wait for it to finish.", null, "Preparing");
   }
   if (state.initializationError) {
+    if (state.initializationError === "temporary-folder") {
+      const checked = state.checkedTemporaryFolder || "";
+      const named = checked ? `: ${checked}` : "";
+      return finish(
+        feedback,
+        "temporary-folder",
+        `The temporary folder was rejected${named}. The attachment was not changed.`,
+        false,
+        "Preparing",
+      );
+    }
     return finish(
       feedback,
       state.initializationError === "engine" ? "engine" : "backup",
@@ -434,6 +447,7 @@ export function createOperation(root: string): OperationApi {
   state.stopping = false;
   state.initialized = false;
   state.initializationError = null;
+  state.checkedTemporaryFolder = null;
   state.initializationDiagnostic = null;
   releasePromise = null;
   const ready = (async () => {
@@ -456,7 +470,16 @@ export function createOperation(root: string): OperationApi {
       state.initialized = true;
       state.initializationDiagnostic = null;
     } catch (error) {
-      state.initializationError ||= "backup";
+      if (!state.initializationError) {
+        const code = (error as { safeCode?: string }).safeCode;
+        if (code === "temporary-folder") {
+          state.initializationError = "temporary-folder";
+          const checked = (error as { checkedPath?: string }).checkedPath;
+          state.checkedTemporaryFolder = typeof checked === "string" ? checked : "";
+        } else {
+          state.initializationError = "backup";
+        }
+      }
       const diagnostic: StartupDiagnostic = {
         stage: state.initializationDiagnostic?.stage || "startup",
         name: String((error as { name?: string }).name || "Error").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64),
