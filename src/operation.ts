@@ -415,13 +415,7 @@ export function releaseOperation(): Promise<void> {
   closeFeedbackForWindow();
   if (!releasePromise) {
     releasePromise = (async () => {
-      if (state.ready) {
-        try {
-          await state.ready;
-        } catch {
-          // The startup failure was recorded when it happened.
-        }
-      }
+      if (state.ready) await state.ready;
       await Promise.allSettled(state.busy.values());
       const lock = state.lock;
       const sessionDir = state.sessionDir;
