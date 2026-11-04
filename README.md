@@ -14,6 +14,8 @@ approved portable baseline.
 
 The manifest targets Zotero 7 and newer. Only Zotero 10.0.6 has been run so far.
 
+![](assets/interface.png)
+
 ## Build
 
 Node 26.12.1 and npm 11.20.0 were used for the recorded build.
