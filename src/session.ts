@@ -112,7 +112,18 @@ export async function cleanSession(directory: string, lock: Lock): Promise<boole
 
 function temporaryFolder(): string {
   const selected = Zotero.Prefs.get(PREF, true);
-  return typeof selected === "string" && selected ? selected : Zotero.getTempDirectory().path;
+  const typed = typeof selected === "string" && selected ? selected : Zotero.getTempDirectory().path;
+  // Expand only this setting. Unresolved home stays typed and is rejected below.
+  if (typed !== "~" && !typed.startsWith("~/")) return typed;
+  let home = "";
+  try {
+    home = (Services.dirsvc.get("Home", Components.interfaces.nsIFile) as nsIFile).path;
+  } catch {
+    home = "";
+  }
+  if (typeof home !== "string" || !home.startsWith("/") || home.split("/").includes("..")) return typed;
+  if (home.length > 1 && home.endsWith("/")) home = home.slice(0, -1);
+  return typed === "~" ? home : home + typed.slice(1);
 }
 
 export async function initSession(
@@ -120,13 +131,21 @@ export async function initSession(
   lockHelperPath: string,
 ): Promise<{ sessionDir: string; lock: Lock }> {
   const selected = temporaryFolder();
-  checkNoSymlinks(selected);
-  if (!localFile(selected).isDirectory()) fail("temporary-folder");
+  try {
+    // A missing folder is a temporary-folder rejection, not missing-path.
+    checkNoSymlinks(selected, true);
+  } catch (error) {
+    const code = (error as { safeCode?: string }).safeCode;
+    if (code === "unsafe-path" || code === "missing-path") fail("temporary-folder", selected);
+    throw error;
+  }
+  const folder = localFile(selected);
+  if (!folder.exists() || !folder.isDirectory() || !folder.isWritable()) fail("temporary-folder", selected);
   const root = join(selected, "mupdf-compress-v1");
   checkNoSymlinks(root, true);
   await IOUtils.makeDirectory(root, { permissions: 0o700, ignoreExisting: true });
   checkNoSymlinks(root);
-  if (!localFile(root).isDirectory()) fail("temporary-folder");
+  if (!localFile(root).isDirectory()) fail("temporary-folder", selected);
   for (const directory of await IOUtils.getChildren(root)) {
     if (!(await recognized(directory))) continue;
     const lock = await acquireLock(subprocess, lockHelperPath, directory);

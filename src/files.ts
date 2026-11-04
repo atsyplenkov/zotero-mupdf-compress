@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-export function fail(code: string): never {
-  const error = new Error(code) as Error & { safeCode?: string };
+export function fail(code: string, checkedPath?: string): never {
+  const error = new Error(code) as Error & { safeCode?: string; checkedPath?: string };
   error.safeCode = code;
+  if (checkedPath !== undefined) error.checkedPath = checkedPath;
   throw error;
 }
 
