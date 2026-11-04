@@ -5,6 +5,8 @@ docs/adr/*
 !docs/testing/
 .local-test/
 
+/*.xpi
+
 # Node and scaffold build output
 node_modules/
 .scaffold/
