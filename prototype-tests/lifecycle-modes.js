@@ -1,6 +1,4 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- * THROWAWAY: extra isolated lifecycle and hands-on review setup.
- */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 async function runMuPDFLifecycleMode(mode, helpers) {
   const { api, request, report, env, runDir, state, save, check, assert, skip,
     action, outcome, attachment, compressed, original, record, hash, withHook } = helpers;
@@ -140,7 +138,6 @@ async function runMuPDFLifecycleMode(mode, helpers) {
             await save();
           } finally {
             release();
-            // Never leave an intentionally held operation behind on assertion failure.
             await running;
             if (stopTask) await stopTask;
           }

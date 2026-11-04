@@ -39,9 +39,7 @@ export async function acquireLock(
     if (proc) {
       try {
         proc.kill();
-      } catch {
-        // The helper is already gone.
-      }
+      } catch {}
     }
     return null;
   }
@@ -55,9 +53,7 @@ export async function releaseLock(lock: Lock | null): Promise<void> {
   } catch {
     try {
       lock.proc.kill();
-    } catch {
-      // The helper is already gone.
-    }
+    } catch {}
   }
   lock.alive = false;
 }
@@ -149,9 +145,7 @@ export async function initSession(
   if (!lock) {
     try {
       await IOUtils.remove(sessionDir);
-    } catch {
-      // Leave this fresh unowned directory rather than widening cleanup.
-    }
+    } catch {}
     fail("lock-unavailable");
   }
   try {
@@ -161,9 +155,7 @@ export async function initSession(
     try {
       await IOUtils.remove(join(sessionDir, "session.lock"));
       await IOUtils.remove(sessionDir);
-    } catch {
-      // A later startup leaves an unrecognized directory alone.
-    }
+    } catch {}
     throw error;
   }
   return { sessionDir, lock };

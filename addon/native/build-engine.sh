@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build the bundled native tools from the pinned MuPDF source.
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
 umask 077

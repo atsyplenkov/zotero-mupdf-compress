@@ -1,6 +1,4 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- * THROWAWAY: privileged, disposable-profile-only integration driver.
- */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 var { Zotero } = ChromeUtils.importESModule("chrome://zotero/content/zotero.mjs");
 var stopped = false;
 var running;
@@ -30,7 +28,6 @@ async function drive(rootURI) {
       || !/^[A-Za-z0-9_-]{1,80}$/.test(request.runID || "")) {
     throw new Error("Unsafe test request");
   }
-  // Claim a request once. A subsequent launch cannot accidentally repeat it.
   var claimed = PathUtils.join(work, "integration-request-" + request.runID + ".claimed.json");
   await IOUtils.move(requestPath, claimed, { noOverwrite: true });
   var evidencePath = PathUtils.join(work, "integration-" + request.runID + ".json");

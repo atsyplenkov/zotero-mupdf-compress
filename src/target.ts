@@ -16,7 +16,6 @@ function childPdfs(item: Zotero.Item): Zotero.Item[] {
       (child) => child.attachmentContentType === "application/pdf",
     );
   } catch {
-    // An item whose child list is unavailable is not a usable parent target.
     return [];
   }
 }

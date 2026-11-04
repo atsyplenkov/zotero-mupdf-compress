@@ -6,9 +6,7 @@ let resultScheduled = false;
 function reportUIError(stage, error) {
   try {
     window.arguments?.[0]?.reportUIError(stage, error);
-  } catch {
-    // Host reporter is unavailable during teardown.
-  }
+  } catch {}
 }
 
 function closeFeedbackWindow() {
@@ -75,7 +73,5 @@ window.addEventListener("unload", () => {
   try {
     const model = window.arguments?.[0];
     if (model?.win === window) model.win = null;
-  } catch {
-    // Window reference was already detached.
-  }
+  } catch {}
 });

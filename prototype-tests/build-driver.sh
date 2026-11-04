@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Build only. Does not install or launch Zotero.
 set -euo pipefail
 umask 077
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)

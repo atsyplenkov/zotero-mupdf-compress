@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Fail when AGENTS.md does not record the pinned tool versions.
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
