@@ -61,11 +61,9 @@ function registerWithMenuManager(): string | null {
     menus: [
       {
         menuType: "submenu",
-        onShowing(_event, context) {
+        onShowing(_event, context: _ZoteroTypes.MenuManager.BaseMenuContext & { items?: Zotero.Item[] }) {
           context.menuElem.id = MENU_ID;
           context.menuElem.setAttribute("label", SUBMENU_LABEL);
-          // The item context supplies the selection as context.items. Do not read
-          // context.collectionTreeRow: newer multi-row menus remove it.
           context.setVisible(!!resolveTarget(context.items));
         },
         menus: [
