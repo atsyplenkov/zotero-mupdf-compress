@@ -6,6 +6,20 @@ import type { Action } from "./types";
 
 const MENU_ID = "mupdf-compress-itemmenu";
 const SUBMENU_LABEL = "Compress PDF";
+const PLUGIN_ICON = "content/icons/plugin.svg";
+const COMPRESS_ICON = "content/icons/compress.svg";
+const REVERT_ICON = "content/icons/revert.svg";
+
+function iconURL(path: string): string {
+  return rootURI + path;
+}
+
+function applyMenuIcon(element: XULElement, path: string, kind: "menu" | "menuitem"): void {
+  const url = `url(${iconURL(path)})`;
+  element.classList.add("zotero-custom-menu-item", kind === "menu" ? "menu-iconic" : "menuitem-iconic");
+  element.style.setProperty("--custom-menu-icon-light", url);
+  element.style.setProperty("--custom-menu-icon-dark", url);
+}
 
 type MainWindow = Window & {
   ZoteroPane?: { getSelectedItems(): Zotero.Item[] };
@@ -61,6 +75,7 @@ function registerWithMenuManager(): string | null {
     menus: [
       {
         menuType: "submenu",
+        icon: iconURL(PLUGIN_ICON),
         onShowing(_event, context: _ZoteroTypes.MenuManager.BaseMenuContext & { items?: Zotero.Item[] }) {
           context.menuElem.id = MENU_ID;
           context.menuElem.setAttribute("label", SUBMENU_LABEL);
@@ -69,6 +84,7 @@ function registerWithMenuManager(): string | null {
         menus: [
           {
             menuType: "menuitem",
+            icon: iconURL(COMPRESS_ICON),
             onShowing(_event, context) {
               context.menuElem.setAttribute("label", "Compress");
             },
@@ -78,6 +94,7 @@ function registerWithMenuManager(): string | null {
           },
           {
             menuType: "menuitem",
+            icon: iconURL(REVERT_ICON),
             onShowing(_event, context) {
               context.menuElem.setAttribute("label", "Revert");
             },
@@ -101,11 +118,13 @@ function injectMenu(win: Window): void {
   const menu = doc.createXULElement("menu") as XULElement;
   menu.id = MENU_ID;
   menu.setAttribute("label", SUBMENU_LABEL);
+  applyMenuIcon(menu, PLUGIN_ICON, "menu");
   const children = doc.createXULElement("menupopup") as XULElement;
   const commands: WindowMenu["commands"] = [];
   for (const action of ["Compress", "Revert"] as Action[]) {
     const entry = doc.createXULElement("menuitem") as XULElement;
     entry.setAttribute("label", action);
+    applyMenuIcon(entry, action === "Compress" ? COMPRESS_ICON : REVERT_ICON, "menuitem");
     const listener: EventListener = () => invoke(action, main, pane.getSelectedItems());
     entry.addEventListener("command", listener);
     commands.push({ element: entry, listener });
