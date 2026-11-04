@@ -5,6 +5,11 @@
   "description": "__description__",
   "homepage_url": "__homepage__",
   "author": "__author__",
+  "icons": {
+    "16": "content/icons/plugin.svg",
+    "48": "content/icons/plugin.svg",
+    "96": "content/icons/plugin.svg"
+  },
   "applications": {
     "zotero": {
       "id": "__addonID__",
