@@ -380,33 +380,22 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
     }
     return finish(feedback, "failure", UNKNOWN_FAILURE, false, stage);
   } finally {
-    if (output) {
-      try {
-        checkNoSymlinks(output);
-        await IOUtils.remove(output, { ignoreAbsent: true });
-      } catch {
-        // Leave an unexpected output path instead of widening cleanup.
-      }
-    }
-    if (outputDir) {
-      try {
-        checkNoSymlinks(outputDir);
-        await IOUtils.remove(outputDir);
-      } catch {
-        // Leave unexpected directory contents in place.
-      }
-    }
+    if (output) await tryRemoveOwned(output, true);
+    if (outputDir) await tryRemoveOwned(outputDir);
     if (path && state.pathBusy.get(path) === id) state.pathBusy.delete(path);
-    if (action === "Compress" && backupPath && !keepBackup) {
-      try {
-        checkNoSymlinks(backupPath);
-        await IOUtils.remove(backupPath, { ignoreAbsent: true });
-      } catch {
-        // A failed backup cleanup must not hide the operation result.
-      }
-    }
+    if (action === "Compress" && backupPath && !keepBackup) await tryRemoveOwned(backupPath, true);
     state.busy.delete(id);
     resolveDone();
+  }
+}
+
+async function tryRemoveOwned(path: string, ignoreAbsent = false): Promise<void> {
+  try {
+    checkNoSymlinks(path);
+    if (ignoreAbsent) await IOUtils.remove(path, { ignoreAbsent: true });
+    else await IOUtils.remove(path);
+  } catch {
+    return;
   }
 }
 
