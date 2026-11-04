@@ -25,17 +25,21 @@ today=$(date -I)
 failed=0
 seen=0
 
+allow_marker() {
+  printf '%s:%s' "$1" allow
+}
+markers=("$(allow_marker betterleaks)" "$(allow_marker gitleaks)")
+
 for file in "${files[@]}"; do
   [[ -f "$file" ]] || continue
-  # This file names the marker in its own source. It is not an allow comment.
-  [[ "$file" == scripts/check-review-dates.sh ]] && continue
   line_no=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_no=$((line_no + 1))
-    case "$line" in
-      *betterleaks:allow*|*gitleaks:allow*) ;;
-      *) continue ;;
-    esac
+    matched=0
+    for marker in "${markers[@]}"; do
+      [[ "$line" == *"$marker"* ]] && matched=1
+    done
+    [[ "$matched" -eq 1 ]] || continue
     seen=$((seen + 1))
     if [[ ! "$line" =~ \(review\ ([0-9]{4}-[0-9]{2}-[0-9]{2})\) ]]; then
       echo "$file:$line_no: allow comment needs (review YYYY-MM-DD)" >&2
