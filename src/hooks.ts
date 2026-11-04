@@ -73,10 +73,8 @@ async function onShutdown(): Promise<void> {
   addon.operation = null;
   addon.data.mainWindows.clear();
   addon.data.alive = false;
-  // @ts-expect-error - Plugin instance is not typed
-  if (Zotero[addon.data.config.addonInstance] === addon) {
-    // @ts-expect-error - Plugin instance is not typed
-    delete Zotero[addon.data.config.addonInstance];
+  if (Zotero.MuPDFCompress === addon) {
+    delete Zotero.MuPDFCompress;
   }
 }
 
