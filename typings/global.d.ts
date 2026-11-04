@@ -7,3 +7,7 @@ declare const _globalThis: {
 declare const rootURI: string;
 
 declare const addon: import("../src/addon").default;
+
+declare namespace Zotero {
+  let MuPDFCompress: import("../src/addon").default | undefined;
+}

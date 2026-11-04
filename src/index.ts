@@ -2,9 +2,10 @@
 import Addon from "./addon";
 import { config } from "../package.json";
 
-// @ts-expect-error - Plugin instance is not typed
-if (!Zotero[config.addonInstance]) {
+if (config.addonInstance !== "MuPDFCompress") {
+  throw new Error("addonInstance");
+}
+if (!Zotero.MuPDFCompress) {
   _globalThis.addon = new Addon();
-  // @ts-expect-error - Plugin instance is not typed
-  Zotero[config.addonInstance] = _globalThis.addon;
+  Zotero.MuPDFCompress = _globalThis.addon;
 }
