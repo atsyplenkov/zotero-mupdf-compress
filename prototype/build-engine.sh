@@ -15,10 +15,8 @@ if [[ ! -f "$ARCHIVE" ]]; then
   mv "$ARCHIVE.part" "$ARCHIVE"
 fi
 printf '%s  %s\n' "$HASH" "$ARCHIVE" | sha256sum -c -
-if [[ ! -d "$SOURCE" ]]; then
-  tar -xzf "$ARCHIVE" -C "$WORK/build"
-fi
-# The build tree is disposable; do not patch it.
+rm -rf "$SOURCE"
+tar -xzf "$ARCHIVE" -C "$WORK/build"
 make -C "$SOURCE" -j"${JOBS:-4}" build=release tools \
   HAVE_X11=no HAVE_GLUT=no HAVE_LIBCRYPTO=no HAVE_CURL=no
 install -m 0755 "$SOURCE/build/release/mutool" "$WORK/native/mutool"
