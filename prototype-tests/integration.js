@@ -1,7 +1,4 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- * THROWAWAY: execute only through the disposable-profile test driver.
- * All file writes are to new fixture copies, imported storage, or known backups.
- */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 async function runMuPDFIntegration(api, request, env) {
   const { work, local, evidencePath, window: win } = env;
   const fixtures = PathUtils.join(local, "fixtures");
@@ -153,7 +150,6 @@ async function runMuPDFIntegration(api, request, env) {
     assert(await hash(info.path) === info.originalHash, "Original bytes were not restored");
   }
 
-  // These preconditions prevent accidental execution against a personal library.
   assert(Zotero.Profile.dir === request.expectedProfile, "Profile mismatch");
   assert(Zotero.DataDirectory.dir === request.expectedData, "Data directory mismatch");
   assert(!Zotero.Prefs.get("sync.autoSync"), "Auto-sync must be disabled");
@@ -209,7 +205,6 @@ async function runMuPDFIntegration(api, request, env) {
       await check(mode + ": Compress, repeated Compress, Revert, timestamp-only Revert", async () => {
         const { item, info } = await attachment(mode);
         if (mode === "stored") {
-          // Synthetic last-synced metadata proves compression does not erase preconditions.
           item.attachmentSyncedHash = "0123456789abcdef0123456789abcdef";
           item.attachmentSyncedModificationTime = 1234567890000;
           item.attachmentSyncState = "in_sync";
@@ -294,7 +289,6 @@ async function runMuPDFIntegration(api, request, env) {
       outcome(result, "revert-changed");
       assert(await hash(info.path) === changedHash, "Changed file was overwritten");
       assert(record(item), "Blocked Revert consumed its record");
-      // Return only the synthetic modification to the known installed bytes for cleanup.
       await IOUtils.write(info.path, installed);
       const retry = await action("revert", item);
       await original(item, info);
@@ -589,7 +583,6 @@ async function runMuPDFIntegration(api, request, env) {
           assert(JSON.stringify(record(item)) === retained, "Failed metadata retry consumed recovery state");
           assert(await hash(backup) === info.originalHash, "Failed metadata retry consumed original backup");
         } finally { item.saveTx = saveTx; }
-        // A metadata-only retry must not replace the already restored file again.
         await IOUtils.setModificationTime(info.path, Date.now() - 3600000);
         const beforeRetryMtime = (await IOUtils.stat(info.path)).lastModified;
         const retry = await action("revert", item);

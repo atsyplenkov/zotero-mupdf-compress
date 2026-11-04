@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Throwaway Linux x86_64 prototype for #9. SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
 umask 077
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)

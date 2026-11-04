@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Install the two local XPIs only into the stopped #8 disposable profile."""
 import json
 import pathlib
 import shutil
@@ -43,7 +42,6 @@ prefs = {
     "extensions.mupdf-compress-prototype.temporaryFolder": str(backups),
 }
 with (profile / "prefs.js").open("a") as stream:
-    stream.write("\n// Local prototype test installation; isolated profile only.\n")
     for key, value in prefs.items():
         stream.write(f"user_pref({json.dumps(key)}, {json.dumps(value)});\n")
 print("Installed local XPIs into", profile)

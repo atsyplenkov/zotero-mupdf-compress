@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Fail when a secret-scanner allow comment has no current review date.
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)

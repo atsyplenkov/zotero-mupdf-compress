@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Create an explicit one-shot request. Does not install or launch Zotero."""
 import argparse
 import json
 import pathlib

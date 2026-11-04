@@ -10,7 +10,6 @@ export default defineConfig({
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
-  // Reserved placeholder. There is no automatic-update feed.
   updateURL: "https://example.invalid/mupdf-compress/updates.json",
   xpiDownloadLink: "https://example.invalid/mupdf-compress/mupdf-compress.xpi",
   build: {

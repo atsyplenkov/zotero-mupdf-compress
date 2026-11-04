@@ -143,9 +143,7 @@ export function unregisterMenus(): void {
   if (registered) {
     try {
       Zotero.MenuManager.unregisterMenu(registered);
-    } catch {
-      // The manager may already be shutting down with its plugin registrations.
-    }
+    } catch {}
     registered = null;
     // The manager only removes elements when it unregisters a registration, and
     // its own plugin shutdown observer runs after this function. Remove the

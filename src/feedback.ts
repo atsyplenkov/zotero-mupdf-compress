@@ -31,19 +31,13 @@ export function recordUiError(
       : Number.isInteger(candidate?.errorCode)
         ? candidate.errorCode!
         : null;
-  } catch {
-    // Exception properties can be inaccessible after teardown.
-  }
+  } catch {}
   try {
     uiErrors.push({ stage, name, code });
-  } catch {
-    // Diagnostic buffer unavailable.
-  }
+  } catch {}
   try {
     Zotero.debug(`[MuPDF Compress UI] ${stage}: ${name} code=${code}`);
-  } catch {
-    // Logging itself can fail during teardown.
-  }
+  } catch {}
 }
 
 export class Feedback {

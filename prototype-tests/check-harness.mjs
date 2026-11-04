@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Harness-only smoke check. No Zotero process, files, or library are modified.
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -64,7 +63,6 @@ assert.equal(evidence.actions[0].value.code, "validation");
 assert.match(evidence.checks[0].error.message, /latest action:.*"code":"validation"/);
 console.log("Harness smoke passed: failed Compress is retained and named in byte-assertion diagnostics.");
 
-// Review setup must select a compressed fixture and never imply acceptance.
 const reviewItems = new Map();
 let nextID = 10;
 const collectionID = 7;

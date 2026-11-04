@@ -1,7 +1,4 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- * THROWAWAY Linux prototype for #9. Lifecycle adapted from
- * windingwind/zotero-plugin-template v3.1.0 addon/bootstrap.js (AGPL-3.0-or-later).
- */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 var chromeHandle;
 var app;
 var root;
@@ -46,8 +43,6 @@ function checkNoSymlinks(path, allowMissing = false) {
     try {
       if (current.isSymlink()) fail("symlink-path");
     } catch (e) {
-      // nsIFile can throw for absent components. lstat still detects broken
-      // symlinks; only these explicit not-found errors may be ignored.
       if (!(allowMissing && ["NS_ERROR_FILE_NOT_FOUND", "NS_ERROR_FILE_TARGET_DOES_NOT_EXIST"].includes(e.name))) throw e;
     }
     if (!allowMissing && !current.exists()) fail("missing-path");

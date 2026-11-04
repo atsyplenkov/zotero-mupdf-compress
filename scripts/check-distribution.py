@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Check that the built XPI carries the distribution material it must carry."""
 import hashlib
 import json
 import pathlib

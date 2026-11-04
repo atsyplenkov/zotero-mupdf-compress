@@ -93,9 +93,7 @@ async function run(
     if (proc) {
       try {
         proc.kill();
-      } catch {
-        // The child is already gone.
-      }
+      } catch {}
     }
     fail((error as { safeCode?: string }).safeCode || "engine-unavailable");
   }
@@ -108,7 +106,6 @@ export async function documentInfo(
   failure = "unreadable",
 ): Promise<number> {
   const result = await run(subprocess, mutoolPath, ["info", path], true, true);
-  // MuPDF reports a required password on stderr and prints no document details.
   if (/cannot authenticate password/i.test(result.stderr)) fail("encrypted");
   if (result.exitCode !== 0) fail(failure);
   if (/Encryption object/i.test(result.stdout)) fail("encrypted");
