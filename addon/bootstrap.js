@@ -1,17 +1,9 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later
- *
- * Plugin lifecycle. Adapted from the community zotero-plugin-template v3.1.0
- * addon/bootstrap.js (AGPL-3.0-or-later), which credits Zotero's Make It Red
- * example. Only the lifecycle is reused; the plugin build is our own.
- *
- * Zotero calls these functions by name and supplies the unused parameters.
- */
-/* oxlint-disable no-unused-vars */
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
 var chromeHandle;
 
-function install(data, reason) {}
+function install() {}
 
-async function startup({ id, version, resourceURI, rootURI }, reason) {
+async function startup({ rootURI }) {
   var aomStartup = Components.classes[
     "@mozilla.org/addons/addon-manager-startup;1"
   ].getService(Components.interfaces.amIAddonManagerStartup);
@@ -36,15 +28,15 @@ async function startup({ id, version, resourceURI, rootURI }, reason) {
   await Zotero.MuPDFCompress.hooks.onStartup();
 }
 
-async function onMainWindowLoad({ window }, reason) {
+async function onMainWindowLoad({ window }) {
   await Zotero.MuPDFCompress?.hooks.onMainWindowLoad(window);
 }
 
-async function onMainWindowUnload({ window }, reason) {
+async function onMainWindowUnload({ window }) {
   await Zotero.MuPDFCompress?.hooks.onMainWindowUnload(window);
 }
 
-async function shutdown({ id, version, resourceURI, rootURI }, reason) {
+async function shutdown(_data, reason) {
   if (reason === APP_SHUTDOWN) {
     return;
   }
@@ -57,4 +49,11 @@ async function shutdown({ id, version, resourceURI, rootURI }, reason) {
   }
 }
 
-async function uninstall(data, reason) {}
+async function uninstall() {}
+
+void install;
+void startup;
+void onMainWindowLoad;
+void onMainWindowUnload;
+void shutdown;
+void uninstall;
