@@ -122,20 +122,33 @@ function blocked(before: number | null): Phase {
   return { kind: "done", result: { kind: "blocked", before } };
 }
 
+function priorBefore(row: Row): number | null {
+  if (row.phase.kind !== "done") return null;
+  return row.phase.result.before;
+}
+
 async function runOneRevert(row: Row): Promise<void> {
   row.revertRequested = false;
   const operation = addon.operation;
   const item = refetch(row);
   if (!operation || !item || !hasSessionBackup(rowId(row))) return;
-  const outcome = await operation.revert(item, {
-    stage() {},
-    measured() {},
-  });
-  if (outcome.code !== "success") return;
-  if (typeof outcome.beforeBytes !== "number" || typeof outcome.producedBytes !== "number") return;
+  let outcome;
+  try {
+    outcome = await operation.revert(item, {
+      stage() {},
+      measured() {},
+    });
+  } catch {
+    log("queue", "revert-failed");
+    return;
+  }
+  const restored = outcome.producedBytes;
+  const before = priorBefore(row);
+  if (outcome.code !== "success" && outcome.changed !== true) return;
+  if (typeof restored !== "number" || typeof before !== "number") return;
   row.phase = {
     kind: "done",
-    result: { kind: "reverted", before: outcome.beforeBytes, after: outcome.producedBytes },
+    result: { kind: "reverted", before, after: restored },
   };
 }
 
@@ -148,8 +161,14 @@ async function runOneCompress(row: Row): Promise<void> {
   }
   row.phase = { kind: "running", stage: "Preparing", before: null };
   publish();
-  const outcome = await operation.compress(item, reportFor(row));
-  row.phase = { kind: "done", result: resultFromOutcome(outcome) };
+  try {
+    const outcome = await operation.compress(item, reportFor(row));
+    row.phase = { kind: "done", result: resultFromOutcome(outcome) };
+  } catch {
+    const before = row.phase.kind === "running" ? row.phase.before : null;
+    row.phase = blocked(before);
+    log("queue", "compress-failed");
+  }
 }
 
 function settle(): void {
@@ -285,7 +304,10 @@ export function startCompress(items: Zotero.Item[] | null | undefined): void {
   ledger = next;
   syncModel(next);
   next.win = openWindow(model);
-  if (!next.win) next.dismissed = true;
+  if (!next.win) {
+    ledger = null;
+    return;
+  }
   publish();
   ensurePump();
 }

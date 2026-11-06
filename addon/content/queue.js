@@ -38,6 +38,7 @@ window.MuPDFQueueRender = function () {
     if (!headline || !bar || !button || !tbody) return;
     headline.textContent = view.headline;
     bar.value = view.bar;
+    bar.setAttribute("value", String(view.bar));
     button.label = view.button === "close" ? "Close" : "Cancel";
     tbody.textContent = "";
     view.rows.forEach((row, index) => {
@@ -48,6 +49,8 @@ window.MuPDFQueueRender = function () {
         const image = document.createElementNS(HTML, "img");
         image.src = icon.src;
         image.alt = icon.alt;
+        image.width = 16;
+        image.height = 16;
         iconCell.appendChild(image);
       }
       line.appendChild(iconCell);

@@ -140,7 +140,7 @@ async function runOperation(
   action: Action,
   report?: OperationReport,
 ): Promise<Outcome> {
-  const feedback = report ? null : new Feedback(item, action, state.uiErrors, () => state.stopping);
+  const feedback = action === "Revert" && !report ? new Feedback(item, action, state.uiErrors, () => state.stopping) : null;
   let beforeBytes: number | null = null;
   const publish = (next: string): void => {
     if (report) report.stage(next);
