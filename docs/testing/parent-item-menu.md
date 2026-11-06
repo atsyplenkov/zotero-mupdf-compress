@@ -26,11 +26,13 @@ attachment. `resolveTarget()` now falls back to `solePdf()` when exactly one
 regular item is selected. `childPdfs()` counts current child attachments whose
 `attachmentContentType` is `application/pdf` through `item.getAttachments()`.
 That API already excludes notes and trashed children, and the content-type filter
-removes non-PDF attachments. The submenu appears only when the count is exactly
-one and that child passes `eligible()`.
+removes non-PDF attachments. Compress PDF is shown for any selected stored or
+linked PDF. Item-menu Revert still needs exactly one target from `resolveTarget()`.
 
-A parent with two PDFs is hidden even when only one of them is a stored file. A
-sole web PDF, and a parent with one stored PDF plus one web PDF, are also hidden.
+A parent with several PDFs, and a multi-row selection that includes a stored or
+linked PDF, shows Compress PDF. A sole web PDF stays hidden. A parent with one
+stored PDF and one web PDF shows Compress PDF, and item-menu Revert stays
+disabled because `resolveTarget()` is still null.
 There is no best-attachment heuristic and no fallback that ignores a second PDF.
 
 The count does not inspect file existence or reader state. A missing or open sole
@@ -91,7 +93,7 @@ still passed. That pre-change report is
 | A parent with one linked PDF compresses and reverts that attachment; the link mode and resolved path stay | pass |
 | A real opened item popup and submenu compress and revert the sole PDF; the record stays with the PDF and the bytes return exactly | pass |
 | The submenu appears for one stored PDF, its direct attachment selection, and a parent carrying notes/non-PDF attachments | pass |
-| The submenu is hidden for zero PDFs, two PDFs, a sole web PDF, a stored-plus-web PDF pair, a non-PDF selection, and a multi-item selection | pass |
+| Compress PDF is shown for any selected stored or linked PDF, including several PDFs and a multi-row selection. It stays hidden for zero PDFs, a sole web PDF, and a non-PDF selection. Item-menu Revert still needs exactly one target | pass |
 | A missing sole PDF stays eligible; Compress reports `missing`, leaves bytes unchanged, and creates no record | pass |
 | An open sole PDF stays eligible; Compress reports `open`, leaves bytes unchanged, and creates no record | pass |
 | A busy parent target keeps both actions visible; a second Compress reports `busy` while the first finishes successfully | pass |

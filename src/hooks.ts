@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 import { onMainWindowLoad as onWindowMenuLoad, onMainWindowUnload as onWindowMenuUnload, registerMenus, unregisterMenus } from "./menu";
 import { createOperation, onWindowClose, releaseOperation } from "./operation";
+import { haltCompress, resumeCompress } from "./queue";
 
 const PANE_ID = "mupdf-compress-preferences";
 const closeHandlers = new Map<Window, () => void>();
@@ -9,11 +10,15 @@ let shutdownRegistered = false;
 async function onStartup(): Promise<void> {
   await Promise.all([Zotero.initializationPromise, Zotero.uiReadyPromise]);
   await releaseOperation();
+  resumeCompress();
   unregisterMenus();
   addon.operation = createOperation(rootURI);
   if (!shutdownRegistered) {
     // Zotero awaits these listeners before it closes the database and exits.
-    Zotero.addShutdownListener(() => releaseOperation());
+    Zotero.addShutdownListener(async () => {
+      await haltCompress();
+      await releaseOperation();
+    });
     shutdownRegistered = true;
   }
   await addon.operation.ready;
@@ -58,7 +63,7 @@ function onMainWindowUnload(win: Window): void {
   onWindowClose(win);
   onWindowMenuUnload(win);
   addon.data.mainWindows.delete(win);
-  if (!addon.data.mainWindows.size) void releaseOperation();
+  if (!addon.data.mainWindows.size) void haltThenRelease();
 }
 
 async function onShutdown(): Promise<void> {
@@ -70,13 +75,18 @@ async function onShutdown(): Promise<void> {
     addon.data.paneID = null;
   }
   unregisterMenus();
-  await releaseOperation();
+  await haltThenRelease();
   addon.operation = null;
   addon.data.mainWindows.clear();
   addon.data.alive = false;
   if (Zotero.MuPDFCompress === addon) {
     delete Zotero.MuPDFCompress;
   }
+}
+
+async function haltThenRelease(): Promise<void> {
+  await haltCompress();
+  await releaseOperation();
 }
 
 export default {
