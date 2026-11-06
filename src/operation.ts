@@ -2,6 +2,7 @@
 
 import { CLEAN, documentInfo, extractNative, nativeRun, validate } from "./engine";
 import { Feedback, closeFeedbackForWindow, markWindowClosing } from "./feedback";
+import { formatByteSize } from "./file-size";
 import { attachmentPath, checkNoSymlinks, fail, fileHash, join, loadModule, localFile, log, uuid } from "./files";
 import { type Lock, cleanSession, initSession, releaseLock } from "./session";
 import { eligible } from "./target";
@@ -341,7 +342,7 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
       return finish(
         feedback,
         "success",
-        `Compressed: ${originalSize.toLocaleString()} bytes to ${compressedSize.toLocaleString()} bytes. Saved ${saved.toLocaleString()} bytes (${percent}%). Revert is available only during this Zotero session.`,
+        `Compressed: ${formatByteSize(originalSize)} to ${formatByteSize(compressedSize)}. Saved ${formatByteSize(saved)} (${percent}%). Revert is available only during this Zotero session.`,
         true,
         stage,
       );
