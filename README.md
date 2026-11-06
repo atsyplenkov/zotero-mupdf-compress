@@ -1,7 +1,7 @@
 # MuPDF Compress for Zotero
 
-AGPL-3.0-or-later Zotero extension that compresses one stored or linked PDF
-attachment at a time with a bundled MuPDF engine. This checkout currently
+AGPL-3.0-or-later Zotero extension that compresses the selected stored or
+linked PDFs, one after another, with a bundled MuPDF engine. This checkout currently
 implements the plugin lifecycle, the Settings pane (#11), the single-attachment
 context menu and stored-PDF Compression (#12), linked-PDF Compression (#13), the
 parent-item menu for a sole PDF (#14), Revert with shared-path ownership and

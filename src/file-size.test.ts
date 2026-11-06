@@ -2,7 +2,7 @@
 
 import { equal } from "node:assert/strict";
 import { test } from "node:test";
-import { formatByteSize } from "./file-size.ts";
+import { formatByteSize, formatSavedPercent } from "./file-size.ts";
 
 const renders: Array<[number, string]> = [
   [0, "0 B"],
@@ -27,10 +27,18 @@ test("compress success sentence uses decimal megabytes", () => {
   const originalSize = 13266359;
   const compressedSize = 3131680;
   const saved = originalSize - compressedSize;
-  const percent = ((100 * saved) / originalSize).toFixed(1);
-  const message = `Compressed: ${formatByteSize(originalSize)} to ${formatByteSize(compressedSize)}. Saved ${formatByteSize(saved)} (${percent}%). Revert is available only during this Zotero session.`;
+  const message = `Compressed: ${formatByteSize(originalSize)} to ${formatByteSize(compressedSize)}. Saved ${formatByteSize(saved)} (${formatSavedPercent(originalSize, compressedSize)}). Revert is available only during this Zotero session.`;
   equal(
     message,
     "Compressed: 13.3 MB to 3.1 MB. Saved 10.1 MB (76.4%). Revert is available only during this Zotero session.",
   );
+});
+
+test("formatSavedPercent uses one decimal place", () => {
+  equal(formatSavedPercent(13266359, 3131680), "76.4%");
+  equal(formatSavedPercent(13266359, 14300000), "-7.8%");
+  equal(formatSavedPercent(13266359, 13266359), "0.0%");
+  equal(formatSavedPercent(0, 10), "0.0%");
+  equal(formatSavedPercent(Number.NaN, 10), "0.0%");
+  equal(formatSavedPercent(10, Number.POSITIVE_INFINITY), "0.0%");
 });

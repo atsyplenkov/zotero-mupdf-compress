@@ -26,12 +26,14 @@ attachment. `resolveTarget()` now falls back to `solePdf()` when exactly one
 regular item is selected. `childPdfs()` counts current child attachments whose
 `attachmentContentType` is `application/pdf` through `item.getAttachments()`.
 That API already excludes notes and trashed children, and the content-type filter
-removes non-PDF attachments. The submenu appears only when the count is exactly
-one and that child passes `eligible()`.
+removes non-PDF attachments. Compress PDF is shown for any selected stored or
+linked PDF. Item-menu Revert still needs exactly one target from `resolveTarget()`.
 
-A parent with two PDFs is hidden even when only one of them is a stored file. A
-sole web PDF, and a parent with one stored PDF plus one web PDF, are also hidden.
-There is no best-attachment heuristic and no fallback that ignores a second PDF.
+A parent with several PDFs, and a multi-row selection that includes a stored or
+linked PDF, shows Compress PDF. A sole web PDF stays hidden. A parent with one
+stored PDF and one web PDF shows Compress PDF for the stored PDF. Item-menu
+Revert stays disabled in that case because `resolveTarget()` is still null.
+`selectPdfs()` does not pick a best attachment. It keeps every eligible PDF.
 
 The count does not inspect file existence or reader state. A missing or open sole
 PDF remains a target, and the shared attachment operation explains the blocked
@@ -79,6 +81,8 @@ parent checks that existed then all failed with "The Compress PDF submenu is
 hidden for an eligible target"; the direct-attachment and hidden-target checks
 still passed. That pre-change report is
 `.local-test/parent-tests/evidence-pre-parent-1.json`.
+
+The table is that 2026-11-02 run. It does not cover the later multi-PDF command.
 
 | Check | Result |
 | --- | --- |

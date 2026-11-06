@@ -20,11 +20,18 @@ export interface SessionRecord {
   partial: PartialRecoveryState | null;
 }
 
+export interface OperationReport {
+  stage(stage: string): void;
+  measured(beforeBytes: number): void;
+}
+
 export interface Outcome {
   code: string;
   message: string;
   changed: Changed;
   stage: string;
+  beforeBytes: number | null;
+  producedBytes: number | null;
 }
 
 export interface StartupDiagnostic {
@@ -42,8 +49,8 @@ export interface UiErrorDiagnostic {
 export interface OperationApi {
   ready: Promise<void>;
   hooks: Record<string, (context: Record<string, unknown>) => Promise<void> | void>;
-  compress(item: Zotero.Item | null): Promise<Outcome>;
-  revert(item: Zotero.Item | null): Promise<Outcome>;
+  compress(item: Zotero.Item | null, report?: OperationReport): Promise<Outcome>;
+  revert(item: Zotero.Item | null, report?: OperationReport): Promise<Outcome>;
   snapshot(): {
     ready: boolean;
     initializationError: string | null;

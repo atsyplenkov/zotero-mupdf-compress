@@ -2,6 +2,7 @@
 import { config } from "../package.json";
 import hooks from "./hooks";
 import type { OperationApi } from "./operation";
+import { startCompress as startCompressQueue } from "./queue";
 
 class Addon {
   public data: {
@@ -13,6 +14,7 @@ class Addon {
   };
   public hooks: typeof hooks;
   public operation: OperationApi | null;
+  public startCompress: (items: Zotero.Item[]) => void;
 
   constructor() {
     this.data = {
@@ -24,6 +26,7 @@ class Addon {
     };
     this.hooks = hooks;
     this.operation = null;
+    this.startCompress = startCompressQueue;
   }
 }
 
