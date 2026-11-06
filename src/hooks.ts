@@ -27,6 +27,7 @@ async function onStartup(): Promise<void> {
     id: PANE_ID,
     label: addon.data.config.addonName,
     src: rootURI + "content/preferences.xhtml",
+    scripts: [rootURI + "content/preferences.js"],
   });
 
   registerMenus();
