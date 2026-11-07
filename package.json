@@ -2,6 +2,7 @@
   "name": "zotero-mupdf-compress",
   "type": "module",
   "version": "0.1.6",
+  "packageManager": "npm@11.20.0",
   "description": "Compress PDF attachments in Zotero with a bundled MuPDF engine.",
   "author": "MuPDF Compress contributors",
   "license": "AGPL-3.0-or-later",

@@ -40,7 +40,7 @@ local fast = new Mapping<String, Step> {
     check = "scripts/check-review-dates.sh"
   }
   ["versions"] {
-    glob = List("AGENTS.md", "mise.toml", "package.json")
+    glob = List("mise.toml", "package.json", "scripts/check-versions.sh")
     check = "scripts/check-versions.sh"
   }
 }
