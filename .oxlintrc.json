@@ -1,7 +1,5 @@
 {
   "ignorePatterns": [
-    "prototype/**",
-    "prototype-tests/**",
     "node_modules/**",
     ".scaffold/**",
     ".local-test/**",

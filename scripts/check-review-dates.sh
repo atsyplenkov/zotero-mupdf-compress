@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$root"
 
-roots=(addon src scripts docs .github typings prototype prototype-tests AGENTS.md README.md)
+roots=(addon src scripts docs .github typings AGENTS.md README.md)
 files=()
 for place in "${roots[@]}"; do
   [[ -e "$place" ]] || continue

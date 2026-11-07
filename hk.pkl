@@ -9,8 +9,6 @@ local productJs = List(
 )
 
 local evidence = List(
-  "prototype/**",
-  "prototype-tests/**",
   "node_modules/**",
   ".scaffold/**",
   ".local-test/**",
@@ -25,9 +23,7 @@ local fast = new Mapping<String, Step> {
   ["oxlint"] = (Builtins.ox_lint) {
     glob = productJs
   }
-  ["shellcheck"] = (Builtins.shellcheck) {
-    exclude = List("prototype/**", "prototype-tests/**")
-  }
+  ["shellcheck"] = Builtins.shellcheck
   ["typos"] = (Builtins.typos) {
     exclude = typosExclude
   }
