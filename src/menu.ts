@@ -16,10 +16,16 @@ function iconURL(path: string): string {
 }
 
 function applyMenuIcon(element: XULElement, path: string, kind: "menu" | "menuitem"): void {
-  const url = `url(${iconURL(path)})`;
+  const url = `url("${iconURL(path)}")`;
   element.classList.add("zotero-custom-menu-item", kind === "menu" ? "menu-iconic" : "menuitem-iconic");
+  element.setAttribute("image", iconURL(path));
   element.style.setProperty("--custom-menu-icon-light", url);
   element.style.setProperty("--custom-menu-icon-dark", url);
+  // A submenu icon is drawn from --menuitem-icon. The toolkit value hides it
+  // unless this declaration wins.
+  element.style.setProperty("--menuitem-icon", url, "important");
+  element.style.setProperty("-moz-context-properties", "fill, fill-opacity");
+  element.style.setProperty("fill", "currentColor");
 }
 
 type MainWindow = Window & {
@@ -85,6 +91,7 @@ function registerWithMenuManager(): string | null {
         onShowing(_event, context: _ZoteroTypes.MenuManager.BaseMenuContext & { items?: Zotero.Item[] }) {
           context.menuElem.id = MENU_ID;
           context.menuElem.setAttribute("label", SUBMENU_LABEL);
+          applyMenuIcon(context.menuElem, PLUGIN_ICON, "menu");
           context.setVisible(selectPdfs(context.items).length > 0);
         },
         menus: [
