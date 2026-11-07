@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.6]
+
+- Fixed false Unreadable errors for readable PDFs with Unicode element names in XML metadata. Encrypted PDFs are still rejected, and both input and output are still rendered for validation.
+
 ## [0.1.5]
 
 - The Revert Size percent uses the original PDF as its baseline. A Compression of `-82.0%` reverts as `+82.0%`.
