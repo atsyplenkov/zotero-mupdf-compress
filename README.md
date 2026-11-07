@@ -71,15 +71,23 @@ setting, or recovery override is offered.
 
 ## Testing
 
+Run the same project checks as CI:
+
+```sh
+mise run check
+```
+
+Run the unit tests:
+
+```sh
+node --test src/*.test.ts
+```
+
 The isolated-profile driver and host scripts are local under `.local-test/` and
-are not committed. The recorded checks and their limits are in
-[docs/testing/settings-and-lifecycle.md](docs/testing/settings-and-lifecycle.md),
-[docs/testing/compress-one-stored-pdf.md](docs/testing/compress-one-stored-pdf.md),
-[docs/testing/compress-one-linked-pdf.md](docs/testing/compress-one-linked-pdf.md),
-[docs/testing/parent-item-menu.md](docs/testing/parent-item-menu.md),
-[docs/testing/revert-a-compressed-attachment.md](docs/testing/revert-a-compressed-attachment.md),
-[docs/testing/session-and-cleanup.md](docs/testing/session-and-cleanup.md), and
-[docs/testing/distribution.md](docs/testing/distribution.md).
+are not committed. See
+[docs/testing/zotero-environment.md](docs/testing/zotero-environment.md) for the
+isolated Zotero launcher and
+[docs/testing/pdf-corpus.md](docs/testing/pdf-corpus.md) for fixture generation.
 
 ## License
 
