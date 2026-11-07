@@ -11,6 +11,8 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 XPI = REPO / ".scaffold/build/mu-pdf-compress.xpi"
 MUPDF_SOURCE = "https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-source.tar.gz"
 MUPDF_SHA256 = "98a5c10cda20c3992cdf76ff6b2a1149c32bd79cc796d3f703230b1185b7e934"
+UPDATE_JSON = REPO / ".scaffold/build/update.json"
+UPDATE_URL = "https://github.com/atsyplenkov/zotero-mupdf-compress/releases/download/release/update.json"
 SHA256 = re.compile(r"[a-f0-9]{64}")
 REQUIRED = [
     "LICENSE",
@@ -93,11 +95,41 @@ def main() -> int:
             "manifest update_url has no host",
         )
         require(
-            str(urlsplit(update_url).hostname).endswith(".invalid"),
-            "manifest update_url is not a reserved non-operational placeholder",
+            update_url == UPDATE_URL,
+            "manifest update_url is not the GitHub releases update manifest",
         )
         require(bool(zotero.get("strict_min_version")), "manifest strict_min_version is empty")
         require(bool(zotero.get("strict_max_version")), "manifest strict_max_version is empty")
+        require(UPDATE_JSON.is_file(), f"Missing {UPDATE_JSON}")
+        if UPDATE_JSON.is_file():
+            published = json.loads(UPDATE_JSON.read_text(encoding="utf-8"))
+            updates = published.get("addons", {}).get(package["config"]["addonID"], {}).get("updates", [])
+            if not isinstance(updates, list):
+                updates = []
+            version = package["version"]
+            link = (
+                "https://github.com/atsyplenkov/zotero-mupdf-compress/releases/download/"
+                f"v{version}/mu-pdf-compress.xpi"
+            )
+            entry = next(
+                (item for item in updates if isinstance(item, dict) and item.get("version") == version),
+                None,
+            )
+            require(entry is not None, "update.json has no entry for the package version")
+            if entry is not None:
+                compatibility = (entry.get("applications") or {}).get("zotero") or {}
+                require(
+                    entry.get("update_link") == link,
+                    "update.json update_link is not the GitHub release XPI",
+                )
+                require(
+                    compatibility.get("strict_min_version") == zotero.get("strict_min_version"),
+                    "update.json strict_min_version differs from the manifest",
+                )
+                require(
+                    compatibility.get("strict_max_version") == zotero.get("strict_max_version"),
+                    "update.json strict_max_version differs from the manifest",
+                )
 
         for name in ("LICENSE", "notices/MuPDF-COPYING"):
             text = read(name).decode("utf-8", errors="replace")

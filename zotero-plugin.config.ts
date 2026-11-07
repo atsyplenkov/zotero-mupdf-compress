@@ -10,8 +10,8 @@ export default defineConfig({
   name: pkg.config.addonName,
   id: pkg.config.addonID,
   namespace: pkg.config.addonRef,
-  updateURL: "https://example.invalid/mupdf-compress/updates.json",
-  xpiDownloadLink: "https://example.invalid/mupdf-compress/mupdf-compress.xpi",
+  updateURL: "https://github.com/{{owner}}/{{repo}}/releases/download/release/{{updateJson}}",
+  xpiDownloadLink: "https://github.com/{{owner}}/{{repo}}/releases/download/v{{version}}/{{xpiName}}.xpi",
   build: {
     assets: [
       "addon/**/*.*",
