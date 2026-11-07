@@ -105,7 +105,7 @@ export async function documentInfo(
   path: string,
   failure = "unreadable",
 ): Promise<number> {
-  const result = await run(subprocess, mutoolPath, ["info", path], true, true);
+  const result = await run(subprocess, mutoolPath, ["info", "-M", path], true, true);
   if (/cannot authenticate password/i.test(result.stderr)) fail("encrypted");
   if (result.exitCode !== 0) fail(failure);
   if (/Encryption object/i.test(result.stdout)) fail("encrypted");

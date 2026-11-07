@@ -126,7 +126,9 @@ def main() -> int:
                 read("source/" + name) == (REPO / name).read_bytes(),
                 f"source/{name} differs from the repository file",
             )
-        for path in sorted((REPO / "src").rglob("*.ts")):
+        for path in sorted((REPO / "src").rglob("*")):
+            if not path.is_file():
+                continue
             entry = "source/src/" + path.relative_to(REPO / "src").as_posix()
             require(entry in names, f"XPI is missing extension source {entry}")
             if entry in names:

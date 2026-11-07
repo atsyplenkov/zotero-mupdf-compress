@@ -54,6 +54,7 @@ local slow = (fast) {
     glob = List(
       "addon/**",
       "src/**/*.ts",
+      "src/test-fixtures/**",
       "LICENSE",
       "package.json",
       "typings/prefs.d.ts",
@@ -64,7 +65,7 @@ local slow = (fast) {
     check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py"
   }
   ["unit"] {
-    glob = List("src/**/*.ts", "hk.pkl")
+    glob = List("src/**/*.ts", "src/test-fixtures/**", "hk.pkl")
     check = "node --test src/*.test.ts"
   }
 }
