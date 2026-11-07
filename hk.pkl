@@ -63,6 +63,10 @@ local slow = (fast) {
     )
     check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py"
   }
+  ["unit"] {
+    glob = List("src/**/*.ts", "hk.pkl")
+    check = "node --test src/*.test.ts"
+  }
 }
 
 hooks {

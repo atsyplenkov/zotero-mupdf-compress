@@ -17,6 +17,17 @@ import {
   resultFromOutcome,
   revertedHeadline,
 } from "./queue-view.ts";
+import { RECOVERY_SENTENCE, type Outcome } from "./types.ts";
+
+function sized(code: "success" | "no-benefit" | "partial", changed: boolean, before: number, after: number, message: string): Outcome {
+  if (code === "partial") {
+    return { code, changed, message: RECOVERY_SENTENCE.replacedIncomplete, stage: "Replacing", beforeBytes: before, producedBytes: after };
+  }
+  if (code === "no-benefit") {
+    return { code, changed: false, message, stage: "Validating", beforeBytes: before, producedBytes: after };
+  }
+  return { code, changed, message, stage: "Replacing", beforeBytes: before, producedBytes: after };
+}
 
 const original = 13266359;
 const smaller = 3131680;
@@ -38,6 +49,14 @@ test("reverted headline counts installed PDFs", () => {
   equal(revertedHeadline(0), "0 PDFs reverted");
   equal(revertedHeadline(1), "1 PDF reverted");
   equal(revertedHeadline(2), "2 PDFs reverted");
+});
+
+test("a headline names replacements that still need recovery", () => {
+  equal(compressedHeadline(0, 1), "0 PDFs compressed, 1 replacement awaiting recovery");
+  equal(compressedHeadline(1, 1), "1 PDF compressed, 1 replacement awaiting recovery");
+  equal(compressedHeadline(2, 3), "2 PDFs compressed, 3 replacements awaiting recovery");
+  equal(revertedHeadline(0, 1), "0 PDFs reverted, 1 restoration awaiting recovery");
+  equal(revertedHeadline(2, 2), "2 PDFs reverted, 2 restorations awaiting recovery");
 });
 
 test("a row shows the saved percent only after Compression produces a PDF", () => {
@@ -88,24 +107,56 @@ test("a row shows the saved percent only after Compression produces a PDF", () =
 });
 
 test("resultFromOutcome keeps installed, rejected, and blocked apart", () => {
-  equal(
-    resultFromOutcome({ code: "success", changed: true, beforeBytes: original, producedBytes: smaller }).kind,
-    "installed",
-  );
-  equal(
-    resultFromOutcome({ code: "success", changed: false, beforeBytes: original, producedBytes: larger }).kind,
-    "installed",
-  );
-  equal(
-    resultFromOutcome({ code: "no-benefit", changed: false, beforeBytes: original, producedBytes: larger }).kind,
-    "rejected",
-  );
-  const blocked = resultFromOutcome({ code: "repeated", changed: false, beforeBytes: original, producedBytes: null });
+  equal(resultFromOutcome(sized("success", true, original, smaller, "done")).kind, "installed");
+  equal(resultFromOutcome(sized("success", false, original, larger, "done")).kind, "installed");
+  equal(resultFromOutcome(sized("no-benefit", false, original, larger, "same")).kind, "rejected");
+  const blocked = resultFromOutcome({
+    code: "repeated",
+    changed: false,
+    message: "already",
+    stage: "Preparing",
+    beforeBytes: original,
+    producedBytes: null,
+  });
   equal(blocked.kind, "blocked");
   if (blocked.kind === "blocked") {
     equal(blocked.before, original);
     equal(blocked.code, "repeated");
   }
-  const missing = resultFromOutcome({ code: "success", changed: true, beforeBytes: null, producedBytes: null });
-  equal(missing.kind, "blocked");
+});
+
+test("a replaced PDF with recovery left is not shown as Failed", () => {
+  const recovered = resultFromOutcome({
+    code: "partial",
+    changed: true,
+    message: RECOVERY_SENTENCE.replacedIncomplete,
+    stage: "Replacing",
+    beforeBytes: 100000,
+    producedBytes: 18000,
+  });
+  equal(recovered.kind, "recoverable");
+  if (recovered.kind !== "recoverable") return;
+  equal(recovered.before, 100000);
+  equal(recovered.after, 18000);
+  const shown = queueMessage({ kind: "done", result: recovered }, "Compress");
+  equal(shown.includes("-82.0%"), true);
+  equal(shown.includes(RECOVERY_SENTENCE.replacedIncomplete), true);
+  equal(shown.includes("Failed"), false);
+  equal(queueStatus({ kind: "done", result: recovered }), ROW_FAILED);
+
+  const restored = queueMessage({ kind: "done", result: { ...recovered, before: 18000, after: 100000 } }, "Revert");
+  equal(restored.startsWith("+82.0%"), true);
+});
+
+test("an unverified replacement names the backup instead of a produced size", () => {
+  const unverified = resultFromOutcome({
+    code: "uncertain",
+    changed: null,
+    message: RECOVERY_SENTENCE.unverified,
+    stage: "Replacing",
+    beforeBytes: 100000,
+    producedBytes: null,
+  });
+  equal(unverified.kind, "unverified");
+  equal(queueMessage({ kind: "done", result: unverified }), RECOVERY_SENTENCE.unverified);
 });

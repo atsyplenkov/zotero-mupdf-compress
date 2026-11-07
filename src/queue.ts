@@ -2,25 +2,23 @@
 
 import { log } from "./files";
 import {
+  beginDecision,
+  drainLedger,
+  markMissing,
+  presentStored,
+  type Ledger,
+  type LedgerRow,
+  type RowSink,
+} from "./queue-ledger";
+import {
   QUEUE_COLUMNS,
   QUEUE_TITLE,
-  type Phase,
-  type RunState,
   compressedHeadline,
-  queueMessage,
-  queueStatus,
-  resultFromOutcome,
   revertedHeadline,
+  resultFromOutcome,
 } from "./queue-view";
 import { selectPdfs } from "./target";
-import type { Action, OperationReport } from "./types";
-
-interface Row {
-  libraryID: number;
-  key: string;
-  filename: string;
-  phase: Phase;
-}
+import type { Action } from "./types";
 
 interface ProgressQueueRow {
   id: number;
@@ -51,20 +49,12 @@ interface ProgressQueuesApi {
   create(options: { id: string; title: string; columns: readonly string[] }): ProgressQueueApi;
 }
 
-interface Ledger {
-  action: Action;
-  run: RunState;
-  rows: Row[];
-  closedByQueue: boolean;
-}
-
 const QUEUE_ID = "mupdf-compress";
-const silentReport: OperationReport = { stage() {}, measured() {} };
 
 let ledger: Ledger | null = null;
 let pumpTask: Promise<void> | null = null;
-let halted = false;
 let progressQueue: ProgressQueueApi | null = null;
+let suppressCancel = false;
 
 function progressQueues(): ProgressQueuesApi | null {
   const host = Zotero as unknown as { ProgressQueues?: ProgressQueuesApi };
@@ -72,7 +62,7 @@ function progressQueues(): ProgressQueuesApi | null {
 }
 
 function onQueueCancel(): void {
-  if (!ledger) return;
+  if (suppressCancel || !ledger) return;
   if (ledger.run === "finished") {
     ledger = null;
     return;
@@ -104,97 +94,106 @@ function filenameOf(item: Zotero.Item): string {
   return "PDF";
 }
 
-function installedCount(rows: readonly Row[]): number {
-  return rows.filter((row) => row.phase.kind === "done" && row.phase.result.kind === "installed").length;
-}
-
-function refetch(row: Row): Zotero.Item | null {
+function refetch(row: LedgerRow): Zotero.Item | null {
   try {
-    const item = Zotero.Items.getByLibraryAndKey(row.libraryID, row.key);
+    const item = Zotero.Items.get(row.itemID) || Zotero.Items.getByLibraryAndKey(row.libraryID, row.key);
     return item || null;
   } catch {
     return null;
   }
 }
 
-function blocked(code: string): Phase {
-  return { kind: "done", result: { kind: "blocked", before: null, code } };
+function dialogIsOpen(queue: ProgressQueueApi): boolean {
+  try {
+    return queue.getDialog().isOpen();
+  } catch {
+    return false;
+  }
 }
 
-function showRow(queue: ProgressQueueApi, row: Row, action: Action): void {
-  const item = refetch(row);
-  if (!item) return;
-  if (!queue.getRows().some((entry) => entry.id === item.id)) queue.addRow(item);
-  const entry = queue.getRows().find((candidate) => candidate.id === item.id);
-  // addRow stores the item title. The dialog reads this same row object.
-  if (entry) entry.fileName = row.filename;
-  queue.updateRow(item.id, queueStatus(row.phase), queueMessage(row.phase, action));
+function rowSink(): RowSink {
+  return {
+    update(itemID, status, message) {
+      if (!ledger || ledger.closedByQueue) return;
+      const queue = ensureQueue();
+      if (!queue) return;
+      const row = ledger.rows.find((entry) => entry.itemID === itemID);
+      if (!row) return;
+      let hostRow = queue.getRows().find((entry) => entry.id === itemID);
+      if (!hostRow) {
+        const item = refetch(row);
+        if (!item) return;
+        queue.addRow(item);
+        hostRow = queue.getRows().find((entry) => entry.id === itemID);
+      }
+      // addRow stores the item title. The dialog reads this same row object.
+      if (hostRow) hostRow.fileName = row.filename;
+      row.listed = true;
+      queue.updateRow(itemID, status, message);
+    },
+  };
 }
 
-function publishRows(): void {
-  if (!ledger || ledger.closedByQueue) return;
-  const queue = ensureQueue();
-  if (!queue) return;
-  for (const row of ledger.rows) showRow(queue, row, ledger.action);
+function countResult(rows: readonly LedgerRow[], kind: "installed" | "recoverable"): number {
+  return rows.filter((row) => row.phase.kind === "done" && row.phase.result.kind === kind).length;
 }
 
-async function runOne(row: Row): Promise<void> {
+async function runOne(row: LedgerRow): Promise<void> {
   const operation = addon.operation;
   const item = refetch(row);
   if (!operation || !item) {
-    row.phase = blocked(item ? "failure" : "missing");
-    publishRows();
+    row.phase = item
+      ? { kind: "done", result: { kind: "blocked", before: null, code: "failure" } }
+      : markMissing(row).phase;
     return;
   }
   const action = ledger?.action ?? "Compress";
-  row.phase = { kind: "running" };
-  publishRows();
   try {
-    const outcome = action === "Revert"
-      ? await operation.revert(item, silentReport)
-      : await operation.compress(item, silentReport);
+    const outcome = action === "Revert" ? await operation.revert(item) : await operation.compress(item);
     row.phase = { kind: "done", result: resultFromOutcome(outcome) };
-  } catch {
-    row.phase = blocked("failure");
+  } catch (error) {
     log("queue", action === "Revert" ? "revert-failed" : "compress-failed");
+    throw error;
   }
-  publishRows();
 }
 
-function settle(): void {
-  if (!ledger) return;
-  if (ledger.closedByQueue || halted) {
+function settle(current: Ledger): void {
+  if (ledger !== current) return;
+  if (current.closedByQueue) {
     ledger = null;
     return;
   }
-  for (const row of ledger.rows) {
-    if (row.phase.kind === "waiting") row.phase = blocked("stopped");
+  const sink = rowSink();
+  for (const row of current.rows) {
+    if (row.phase.kind !== "waiting") continue;
+    row.phase = { kind: "done", result: { kind: "blocked", before: null, code: "stopped" } };
+    presentStored(row, current.action, sink);
   }
-  ledger.run = "finished";
-  publishRows();
+  current.run = "finished";
   try {
-    const headline = ledger.action === "Revert" ? revertedHeadline : compressedHeadline;
-    ensureQueue()?.getDialog().setStatus(headline(installedCount(ledger.rows)));
+    const headline = current.action === "Revert" ? revertedHeadline : compressedHeadline;
+    const installed = countResult(current.rows, "installed");
+    const awaitingRecovery = countResult(current.rows, "recoverable");
+    ensureQueue()?.getDialog().setStatus(headline(installed, awaitingRecovery));
   } catch {
     log("queue", "status-failed");
   }
 }
 
-async function runPump(): Promise<void> {
+async function runPump(current: Ledger): Promise<void> {
   try {
-    while (ledger && !halted && ledger.run === "processing") {
-      const next = ledger.rows.find((row) => row.phase.kind === "waiting");
-      if (!next) break;
-      await runOne(next);
-    }
+    await drainLedger(current, runOne, rowSink());
   } finally {
-    settle();
+    settle(current);
   }
 }
 
 function ensurePump(): void {
-  if (pumpTask) return;
-  pumpTask = runPump().finally(() => {
+  if (pumpTask || !ledger) return;
+  const current = ledger;
+  pumpTask = runPump(current).catch((error: unknown) => {
+    log("queue", error instanceof Error ? error.message : "pump-failed");
+  }).finally(() => {
     pumpTask = null;
   });
 }
@@ -212,38 +211,52 @@ function openDialog(queue: ProgressQueueApi): boolean {
 }
 
 function begin(action: Action, selected: Zotero.Item[]): void {
-  if (!selected.length || !addon.operation || halted) return;
+  if (!selected.length || !addon.operation) return;
   const queue = ensureQueue();
   if (!queue) {
     log("queue", "show-failed");
     return;
   }
-  if (ledger) {
-    const dialog = queue.getDialog();
-    if (ledger.run !== "finished" || dialog.isOpen()) {
-      openDialog(queue);
-      return;
-    }
-    queue.cancel();
+  const decision = beginDecision({
+    pumpRunning: pumpTask !== null,
+    dialogOpen: dialogIsOpen(queue),
+    ledger,
+  });
+  if (decision === "join") {
+    openDialog(queue);
+    return;
   }
-  const next: Ledger = {
+  if (decision === "restart") {
+    openDialog(queue);
+    ensurePump();
+    return;
+  }
+  if (ledger) {
+    try {
+      queue.cancel();
+    } catch {
+      log("queue", "close-failed");
+    }
+  }
+  ledger = {
     action,
     run: "processing",
     closedByQueue: false,
     rows: selected.map((item) => ({
+      itemID: item.id,
       libraryID: item.libraryID,
       key: item.key,
       filename: filenameOf(item),
       phase: { kind: "waiting" },
+      listed: false,
     })),
   };
-  ledger = next;
   try {
     queue.getDialog().setStatus("");
   } catch {
     log("queue", "status-failed");
   }
-  publishRows();
+  for (const row of ledger.rows) presentStored(row, action, rowSink());
   if (!openDialog(queue)) {
     ledger = null;
     return;
@@ -259,18 +272,28 @@ export function startRevert(items: Zotero.Item[] | null | undefined): void {
   begin("Revert", selectPdfs(items));
 }
 
-export function haltCompress(): Promise<void> {
-  halted = true;
+export function showQueueIfWorking(): void {
+  if (!ledger || (ledger.run !== "processing" && ledger.run !== "cancel-requested")) return;
+  const queue = ensureQueue();
+  if (!queue) return;
+  for (const row of ledger.rows) presentStored(row, ledger.action, rowSink());
+  openDialog(queue);
+}
+
+export function dismissQueueDialog(): void {
+  suppressCancel = true;
   try {
     const dialog = progressQueue?.getDialog();
     if (dialog?.isOpen()) dialog.close();
-    else progressQueue?.cancel();
   } catch {
     log("queue", "close-failed");
   }
-  return pumpTask ?? Promise.resolve();
+  void Promise.resolve().then(() => {
+    suppressCancel = false;
+  });
 }
 
-export function resumeCompress(): void {
-  if (!pumpTask) halted = false;
+export function stopAcceptingWork(): Promise<void> {
+  if (ledger?.run === "processing") ledger.run = "cancel-requested";
+  return pumpTask ?? Promise.resolve();
 }

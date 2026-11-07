@@ -1,17 +1,18 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { CLEAN, documentInfo, extractNative, nativeRun, validate } from "./engine";
-import { Feedback, closeFeedbackForWindow, markWindowClosing } from "./feedback";
 import { formatByteSize, formatSavedPercent } from "./file-size";
 import { attachmentPath, checkNoSymlinks, fail, fileHash, join, loadModule, localFile, log, uuid } from "./files";
+import { classifyMove, planCompress, planRevert, reconcileUnverified, type LiveHash } from "./recovery";
 import { type Lock, cleanSession, initSession, releaseLock } from "./session";
 import { eligible } from "./target";
-import type { Action, Changed, OperationApi, OperationReport, Outcome, SessionRecord, StartupDiagnostic, UiErrorDiagnostic } from "./types";
+import { RECOVERY_SENTENCE, type Action, type OperationApi, type Outcome, type SessionRecord, type StartupDiagnostic, type UntouchedCode } from "./types";
 
 export type { OperationApi } from "./types";
 
 const ENGINE_FAILURE = "The bundled PDF engine could not run or finish. The attachment was not changed. See the log for technical details.";
 const UNKNOWN_FAILURE = "The operation could not finish. The attachment was not changed.";
+const UNRESOLVED = "The previous replacement could not be verified. The verified original backup was retained. The attachment was not changed.";
 const ENGINE_CODES = ["engine-unavailable", "engine-exit", "engine-output-limit"];
 const BLOCKED_MESSAGES: Record<string, string> = {
   open: "Close this PDF in the Zotero reader and try again. The attachment was not changed.",
@@ -50,7 +51,6 @@ const state: {
   initializationError: string | null;
   checkedTemporaryFolder: string | null;
   initializationDiagnostic: StartupDiagnostic | null;
-  uiErrors: UiErrorDiagnostic[];
 } = {
   native: {},
   records: new Map(),
@@ -65,7 +65,6 @@ const state: {
   initializationError: null,
   checkedTemporaryFolder: null,
   initializationDiagnostic: null,
-  uiErrors: [],
 };
 
 let releasePromise: Promise<void> | null = null;
@@ -135,62 +134,228 @@ async function prepareOutputDirectory(path: string): Promise<string> {
   return outputDir;
 }
 
-async function runOperation(
-  item: Zotero.Item | null,
-  action: Action,
-  report?: OperationReport,
+function readLive(path: string): LiveHash {
+  try {
+    return { kind: "read", hash: fileHash(path) };
+  } catch {
+    return { kind: "unreadable" };
+  }
+}
+
+function remember(record: SessionRecord): void {
+  state.records.set(record.id, record);
+}
+
+function dropRecord(id: string): void {
+  state.records.delete(id);
+}
+
+function untouched(code: UntouchedCode, message: string, changed: false | null, stage: string, beforeBytes: number | null): Outcome {
+  return { code, message, changed, stage, beforeBytes, producedBytes: null };
+}
+
+function logFailure(error: unknown, code: string): void {
+  if (Zotero.Prefs.get("extensions.mupdf-compress.testMode", true) !== true) return;
+  const candidate = error as { name?: string; result?: number; errorCode?: number };
+  log(
+    "operation-error",
+    [candidate?.name || "Error", candidate?.result ?? candidate?.errorCode ?? "", code]
+      .map((part) => String(part).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64))
+      .join(":"),
+  );
+}
+
+function knownSize(size: number | undefined): number | null {
+  return typeof size === "number" && Number.isFinite(size) && size >= 0 ? size : null;
+}
+
+async function moveIntoPlace(item: Zotero.Item, path: string, output: string, beforeHash: string, intendedHash: string): Promise<ReturnType<typeof classifyMove>> {
+  try {
+    await hook("duringReplace", { item, path, output, intendedHash });
+    requireLock();
+    await IOUtils.move(output, path);
+  } catch {
+    return classifyMove(beforeHash, intendedHash, readLive(path));
+  }
+  return classifyMove(beforeHash, intendedHash, readLive(path));
+}
+
+async function finishMetadata(
+  record: Extract<SessionRecord, { phase: "restored-awaiting-metadata" }>,
+  item: Zotero.Item,
+  beforeBytes: number | null,
 ): Promise<Outcome> {
-  const feedback = action === "Revert" && !report ? new Feedback(item, action, state.uiErrors, () => state.stopping) : null;
-  let beforeBytes: number | null = null;
-  const publish = (next: string): void => {
-    if (report) report.stage(next);
-    else feedback?.update(next);
+  const stage = "Reverting";
+  try {
+    if (fileHash(record.backupPath) !== record.originalHash) fail("backup-invalid");
+  } catch (error) {
+    if (!(error as { safeCode?: string }).safeCode) fail("backup-invalid");
+    throw error;
+  }
+  requireLock();
+  if (!(await currentMatches(item, record.path, record.originalHash))) fail("revert-changed");
+  try {
+    await metadata(item);
+  } catch (error) {
+    const code = (error as { safeCode?: string }).safeCode || "";
+    if (code === "revert-changed" || code === "lock-unavailable") throw error;
+    const before = beforeBytes ?? record.originalSize;
+    return {
+      code: "partial",
+      changed: false,
+      message: RECOVERY_SENTENCE.restoredMetadataIncomplete,
+      stage,
+      beforeBytes: before,
+      producedBytes: record.originalSize,
+    };
+  }
+  try {
+    await IOUtils.remove(record.backupPath);
+  } catch {
+    const before = beforeBytes ?? record.originalSize;
+    return {
+      code: "partial",
+      changed: false,
+      message: RECOVERY_SENTENCE.metadataDoneBackupRemains,
+      stage,
+      beforeBytes: before,
+      producedBytes: record.originalSize,
+    };
+  }
+  dropRecord(record.id);
+  return {
+    code: "success",
+    changed: false,
+    message: "Original PDF restored. The remaining metadata update is now complete.",
+    stage,
+    beforeBytes: beforeBytes ?? record.originalSize,
+    producedBytes: (await byteSize(record.path)) ?? record.originalSize,
   };
-  const end = (
-    code: string,
-    message: string,
-    changed: Changed,
-    stage: string,
-    producedBytes: number | null = null,
-  ): Outcome => {
-    const outcome: Outcome = {
-      code,
-      message,
-      changed,
+}
+
+async function applyMove(
+  action: Action,
+  item: Zotero.Item,
+  record: Extract<SessionRecord, { phase: "compressed" | "compressed-awaiting-metadata" }>,
+  output: string,
+  beforeHash: string,
+  intendedHash: string,
+  beforeBytes: number | null,
+  producedBytes: number,
+): Promise<Outcome> {
+  const stage = action === "Compress" ? "Replacing" : "Reverting";
+  const moved = await moveIntoPlace(item, record.path, output, beforeHash, intendedHash);
+  if (moved.kind === "unchanged") {
+    return untouched("replacement-unchanged", "File replacement failed. The attachment bytes were verified unchanged.", false, stage, beforeBytes);
+  }
+  if (moved.kind === "unverified") {
+    remember({ ...record, phase: "replacement-unverified", intended: action === "Compress" ? "compressed" : "restored" });
+    return {
+      code: "uncertain",
+      changed: null,
+      message: RECOVERY_SENTENCE.unverified,
       stage,
       beforeBytes,
+      producedBytes: null,
+    };
+  }
+  if (action === "Compress") {
+    const waiting: SessionRecord = { ...record, phase: "compressed-awaiting-metadata" };
+    remember(waiting);
+    try {
+      await metadata(item);
+    } catch {
+      return {
+        code: "partial",
+        changed: true,
+        message: RECOVERY_SENTENCE.replacedIncomplete,
+        stage,
+        beforeBytes: record.originalSize,
+        producedBytes: record.compressedSize,
+      };
+    }
+    remember({ ...record, phase: "compressed" });
+    const saved = record.originalSize - record.compressedSize;
+    return {
+      code: "success",
+      changed: true,
+      message: `Compressed: ${formatByteSize(record.originalSize)} to ${formatByteSize(record.compressedSize)}. Saved ${formatByteSize(saved)} (${formatSavedPercent(record.originalSize, record.compressedSize)}). Revert is available only during this Zotero session.`,
+      stage,
+      beforeBytes: record.originalSize,
+      producedBytes: record.compressedSize,
+    };
+  }
+  const restored: SessionRecord = {
+    phase: "restored-awaiting-metadata",
+    id: record.id,
+    libraryID: record.libraryID,
+    key: record.key,
+    path: record.path,
+    backupPath: record.backupPath,
+    originalHash: record.originalHash,
+    originalSize: record.originalSize,
+  };
+  remember(restored);
+  try {
+    await metadata(item);
+  } catch {
+    return {
+      code: "partial",
+      changed: true,
+      message: RECOVERY_SENTENCE.restoredIncomplete,
+      stage,
+      beforeBytes: beforeBytes ?? record.compressedSize,
       producedBytes,
     };
-    log(stage, code);
-    feedback?.finish(outcome);
-    return outcome;
+  }
+  try {
+    await IOUtils.remove(record.backupPath);
+  } catch {
+    return {
+      code: "partial",
+      changed: true,
+      message: RECOVERY_SENTENCE.metadataDoneBackupRemains,
+      stage,
+      beforeBytes: beforeBytes ?? record.compressedSize,
+      producedBytes,
+    };
+  }
+  dropRecord(record.id);
+  return {
+    code: "success",
+    changed: true,
+    message: "Original PDF restored.",
+    stage,
+    beforeBytes: beforeBytes ?? record.compressedSize,
+    producedBytes: (await byteSize(record.path)) ?? producedBytes,
   };
+}
+
+async function runOperation(item: Zotero.Item | null, action: Action): Promise<Outcome> {
+  let beforeBytes: number | null = null;
+  const stage = "Preparing";
   if (!eligible(item)) {
-    return end("ineligible", "Select exactly one stored or linked PDF attachment. This action did not change the attachment.", false, "Preparing");
+    return untouched("ineligible", "Select exactly one stored or linked PDF attachment. This action did not change the attachment.", false, stage, null);
   }
   const id = identity(item);
   if (state.stopping) {
-    return end("stopped", "The extension is shutting down. This action did not change the attachment.", false, "Preparing");
+    return untouched("stopped", "The extension is shutting down. This action did not change the attachment.", false, stage, null);
   }
   if (state.busy.has(id)) {
-    return end("busy", "An operation is already running for this attachment. Wait for it to finish.", null, "Preparing");
+    return untouched("busy", "An operation is already running for this attachment. Wait for it to finish.", null, stage, null);
   }
   if (state.initializationError) {
     if (state.initializationError === "temporary-folder") {
       const checked = state.checkedTemporaryFolder || "";
       const named = checked ? `: ${checked}` : "";
-      return end(
-        "temporary-folder",
-        `The temporary folder was rejected${named}. The attachment was not changed.`,
-        false,
-        "Preparing",
-      );
+      return untouched("temporary-folder", `The temporary folder was rejected${named}. The attachment was not changed.`, false, stage, null);
     }
-    return end(
+    return untouched(
       state.initializationError === "engine" ? "engine" : "backup",
       state.initializationError === "engine" ? ENGINE_FAILURE : BLOCKED_MESSAGES.backup,
       false,
-      "Preparing",
+      stage,
+      null,
     );
   }
 
@@ -200,243 +365,168 @@ async function runOperation(
   });
   state.busy.set(id, done);
   let path = "";
-  let backupPath = "";
+  let createdBackup = "";
   let output = "";
   let outputDir = "";
-  let previous: SessionRecord | undefined;
-  let record: SessionRecord | undefined;
-  let beforeHash = "";
-  let intendedHash = "";
-  let stage = "Preparing";
-  let attemptedReplacement = false;
-  let keepBackup = false;
-  let retryMetadata = false;
   try {
     requireLock();
     path = await attachmentPath(item);
     const measured = await byteSize(path);
-    if (measured !== null) {
-      beforeBytes = measured;
-      report?.measured(measured);
-    }
+    if (measured !== null) beforeBytes = measured;
     const pathOwner = state.pathBusy.get(path);
     if (pathOwner && pathOwner !== id) {
-      return end("alias-busy", `An operation is already running for another attachment (${pathOwner}) referencing this PDF. Wait for it to finish.`, null, stage);
+      return untouched("alias-busy", `An operation is already running for another attachment (${pathOwner}) referencing this PDF. Wait for it to finish.`, null, stage, beforeBytes);
     }
     const recordOwner = [...state.records.values()].find((candidate) => candidate.id !== id && candidate.path === path);
-    if (recordOwner) {
-      return end("alias-compressed", ownerMessage(recordOwner), false, stage);
-    }
-    previous = state.records.get(id);
-    if (action === "Compress" && previous) {
-      return end("repeated", "This attachment is already compressed in this session. Revert before compressing again. This action did not change the attachment.", false, stage);
-    }
-    if (action === "Revert" && !previous) {
-      return end("no-record", "Revert is unavailable: no successful compression is recorded for this attachment in this Zotero session. The attachment was not changed.", false, stage);
+    if (recordOwner) return untouched("alias-compressed", ownerMessage(recordOwner), false, stage, beforeBytes);
+    let previous = state.records.get(id) ?? null;
+    const plan = action === "Compress" ? planCompress(previous) : planRevert(previous);
+    if (plan.kind === "stop") {
+      const message = plan.code === "repeated"
+        ? "This attachment is already compressed in this session. Revert before compressing again. This action did not change the attachment."
+        : plan.code === "no-record"
+          ? "Revert is unavailable: no successful compression is recorded for this attachment in this Zotero session. The attachment was not changed."
+          : plan.code === "unresolved"
+            ? UNRESOLVED
+            : BLOCKED_MESSAGES[plan.code] ?? UNKNOWN_FAILURE;
+      return untouched(plan.code, message, false, stage, beforeBytes);
     }
     state.pathBusy.set(path, id);
-    if (action === "Revert" && previous) {
-      const expected = previous.partial === "restored-awaiting-metadata" ? previous.originalHash : previous.compressedHash;
-      if (path !== previous.path || fileHash(path) !== expected) fail("revert-changed");
-    }
     if (sharedReaderOpen(path, item)) fail("open");
-    beforeHash = fileHash(path);
-    if (action === "Revert" && previous?.partial === "restored-awaiting-metadata") {
-      record = previous;
-      backupPath = record.backupPath;
-      try {
-        if (fileHash(backupPath) !== record.originalHash) fail("backup-invalid");
-      } catch {
-        fail("backup-invalid");
-      }
-      stage = "Reverting";
-      publish(stage);
-      retryMetadata = true;
-      requireLock();
-      if (!(await currentMatches(item, path, record.originalHash))) fail("revert-changed");
-      await metadata(item);
-      retryMetadata = false;
-      try {
-        await IOUtils.remove(backupPath);
-      } catch {
-        return end("partial", "The metadata update is complete, but the session backup could not be removed. The recovery record was retained.", false, stage);
-      }
-      state.records.delete(id);
-      return end(
-        "success",
-        "Original PDF restored. The remaining metadata update is now complete.",
-        false,
-        stage,
-        await byteSize(path),
-      );
-    }
     if (!state.sessionDir) fail("backup");
     const mutool = state.native.mutool;
-    if (action === "Compress") {
-      stage = "Backing up";
-      publish(stage);
-      backupPath = join(state.sessionDir, uuid() + ".pdf");
+
+    if (plan.kind === "proceed") {
+      createdBackup = join(state.sessionDir, uuid() + ".pdf");
+      const beforeHash = fileHash(path);
       try {
-        await IOUtils.copy(path, backupPath, { noOverwrite: true });
-        await IOUtils.setPermissions(backupPath, 0o600);
-        if (fileHash(backupPath) !== beforeHash) fail("backup");
+        await IOUtils.copy(path, createdBackup, { noOverwrite: true });
+        await IOUtils.setPermissions(createdBackup, 0o600);
+        if (fileHash(createdBackup) !== beforeHash) fail("backup");
       } catch (error) {
         if (!(error as { safeCode?: string }).safeCode) fail("backup");
         throw error;
       }
-      await hook("afterBackup", { action, item, path, backupPath });
-      if (fileHash(backupPath) !== beforeHash) fail("backup");
-      record = {
+      await hook("afterBackup", { action, item, path, backupPath: createdBackup });
+      if (fileHash(createdBackup) !== beforeHash) fail("backup");
+      await documentInfo(state.subprocess, mutool, createdBackup);
+      outputDir = await prepareOutputDirectory(path);
+      output = join(outputDir, "output.pdf");
+      await nativeRun(state.subprocess, mutool, [...CLEAN, createdBackup, output]);
+      await hook("afterCompress", { action, item, path, backupPath: createdBackup, output });
+      await validate(state.subprocess, mutool, createdBackup, output);
+      const originalSize = knownSize((await IOUtils.stat(createdBackup)).size);
+      const compressedSize = knownSize((await IOUtils.stat(output)).size);
+      if (originalSize === null || originalSize <= 0 || compressedSize === null) fail("validation");
+      if (compressedSize >= originalSize) {
+        return {
+          code: "no-benefit",
+          changed: false,
+          message: "No smaller PDF produced. The attachment was not changed.",
+          stage: "Validating",
+          beforeBytes: originalSize,
+          producedBytes: compressedSize,
+        };
+      }
+      const intendedHash = fileHash(output);
+      requireLock();
+      if (sharedReaderOpen(path, item)) fail("open");
+      if (!(await currentMatches(item, path, beforeHash))) fail("compress-changed");
+      if (fileHash(createdBackup) !== beforeHash) fail("backup");
+      if (fileHash(output) !== intendedHash) fail("validation");
+      const record: SessionRecord = {
+        phase: "compressed",
         id,
         libraryID: item.libraryID,
         key: item.key,
         path,
-        backupPath,
+        backupPath: createdBackup,
         originalHash: beforeHash,
-        compressedHash: null,
-        partial: null,
+        originalSize,
+        compressedHash: intendedHash,
+        compressedSize,
       };
-      stage = "Inspecting input";
-      publish(stage);
-      await documentInfo(state.subprocess, mutool, backupPath);
-      outputDir = await prepareOutputDirectory(path);
-      output = join(outputDir, "output.pdf");
-      stage = "Compressing";
-      publish(stage);
-      await nativeRun(state.subprocess, mutool, [...CLEAN, backupPath, output]);
-      await hook("afterCompress", { action, item, path, backupPath, output });
-      stage = "Validating";
-      publish(stage);
-      await validate(state.subprocess, mutool, backupPath, output);
-      const originalSize = (await IOUtils.stat(backupPath)).size ?? 0;
-      const outputSize = (await IOUtils.stat(output)).size ?? 0;
-      if (!originalSize || outputSize >= originalSize) {
-        return end("no-benefit", "No smaller PDF produced. The attachment was not changed.", false, stage, outputSize);
-      }
-      intendedHash = fileHash(output);
-      record.compressedHash = intendedHash;
-      record.originalSize = originalSize;
-      record.compressedSize = outputSize;
-    } else if (previous) {
-      record = previous;
-      backupPath = record.backupPath;
-      stage = "Reverting";
-      publish(stage);
-      try {
-        if (fileHash(backupPath) !== record.originalHash) fail("backup-invalid");
-      } catch {
-        fail("backup-invalid");
-      }
-      outputDir = await prepareOutputDirectory(path);
-      output = join(outputDir, "output.pdf");
-      await IOUtils.copy(backupPath, output, { noOverwrite: true });
-      if (fileHash(output) !== record.originalHash) fail("backup-invalid");
-      intendedHash = record.originalHash;
+      await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
+      return await applyMove("Compress", item, record, output, beforeHash, intendedHash, beforeBytes, compressedSize);
     }
+
+    if (!previous) return untouched("no-record", "Revert is unavailable: no successful compression is recorded for this attachment in this Zotero session. The attachment was not changed.", false, stage, beforeBytes);
+
+    if (plan.kind === "finish-metadata") {
+      if (previous.phase !== "restored-awaiting-metadata") fail("revert-changed");
+      if (path !== previous.path) fail("revert-changed");
+      return await finishMetadata(previous, item, beforeBytes);
+    }
+
+    if (plan.kind === "reconcile") {
+      if (previous.phase !== "replacement-unverified") fail("revert-changed");
+      const klass = reconcileUnverified(previous, path, readLive);
+      if (klass.kind === "path-changed") fail("revert-changed");
+      if (klass.kind === "still-unverified") {
+        return {
+          code: "uncertain",
+          changed: null,
+          message: RECOVERY_SENTENCE.unverified,
+          stage: "Reverting",
+          beforeBytes,
+          producedBytes: null,
+        };
+      }
+      if (klass.kind === "previous-still-installed" && previous.intended === "compressed") {
+        dropRecord(previous.id);
+        await tryRemoveOwned(previous.backupPath, true);
+        return untouched("replacement-unchanged", "File replacement failed. The attachment bytes were verified unchanged.", false, "Reverting", beforeBytes);
+      }
+      if (previous.intended === "restored" && klass.kind === "intended-landed") {
+        const restored: SessionRecord = {
+          phase: "restored-awaiting-metadata",
+          id: previous.id,
+          libraryID: previous.libraryID,
+          key: previous.key,
+          path: previous.path,
+          backupPath: previous.backupPath,
+          originalHash: previous.originalHash,
+          originalSize: previous.originalSize,
+        };
+        remember(restored);
+        return await finishMetadata(restored, item, beforeBytes);
+      }
+      const ready: SessionRecord = { ...previous, phase: "compressed-awaiting-metadata" };
+      remember(ready);
+      previous = ready;
+    }
+
+    if (previous.phase !== "compressed" && previous.phase !== "compressed-awaiting-metadata") fail("revert-changed");
+    if (path !== previous.path || fileHash(path) !== previous.compressedHash) fail("revert-changed");
+    try {
+      if (fileHash(previous.backupPath) !== previous.originalHash) fail("backup-invalid");
+    } catch (error) {
+      if (!(error as { safeCode?: string }).safeCode) fail("backup-invalid");
+      throw error;
+    }
+    outputDir = await prepareOutputDirectory(path);
+    output = join(outputDir, "output.pdf");
+    await IOUtils.copy(previous.backupPath, output, { noOverwrite: true });
+    if (fileHash(output) !== previous.originalHash) fail("backup-invalid");
     requireLock();
     if (sharedReaderOpen(path, item)) fail("open");
-    if (!(await currentMatches(item, path, beforeHash))) fail(action === "Compress" ? "compress-changed" : "revert-changed");
-    if (action === "Compress") {
-      try {
-        if (fileHash(backupPath) !== beforeHash) fail("backup");
-      } catch {
-        fail("backup");
-      }
-    }
-    if (!record || fileHash(output) !== intendedHash) fail("validation");
-    requireLock();
+    if (!(await currentMatches(item, path, previous.compressedHash))) fail("revert-changed");
     await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
-    stage = action === "Compress" ? "Replacing" : "Reverting";
-    publish(stage);
-    attemptedReplacement = true;
-    try {
-      await hook("duringReplace", { action, item, path, output, intendedHash });
-      requireLock();
-      await IOUtils.move(output, path);
-      if (fileHash(path) !== intendedHash) fail("uncertain");
-    } catch (error) {
-      let installed = false;
-      try {
-        installed = fileHash(path) === intendedHash;
-      } catch {
-        installed = false;
-      }
-      if (!installed) throw error;
-    }
-    keepBackup = true;
-    record.partial = action === "Compress" ? "compressed-awaiting-metadata" : "restored-awaiting-metadata";
-    state.records.set(id, record);
-    await metadata(item);
-    if (action === "Compress") {
-      record.partial = null;
-      const originalSize = record.originalSize || 0;
-      const compressedSize = record.compressedSize || 0;
-      const saved = originalSize - compressedSize;
-      return end(
-        "success",
-        `Compressed: ${formatByteSize(originalSize)} to ${formatByteSize(compressedSize)}. Saved ${formatByteSize(saved)} (${formatSavedPercent(originalSize, compressedSize)}). Revert is available only during this Zotero session.`,
-        true,
-        stage,
-        compressedSize,
-      );
-    }
-    await IOUtils.remove(backupPath);
-    state.records.delete(id);
-    keepBackup = false;
-    return end("success", "Original PDF restored.", true, stage, await byteSize(path));
+    return await applyMove("Revert", item, previous, output, previous.compressedHash, previous.originalHash, beforeBytes, previous.originalSize);
   } catch (error) {
     const code = (error as { safeCode?: string }).safeCode || "";
-    if (Zotero.Prefs.get("extensions.mupdf-compress.testMode", true) === true) {
-      const candidate = error as { name?: string; result?: number; errorCode?: number };
-      log(
-        "operation-error",
-        [candidate?.name || "Error", candidate?.result ?? candidate?.errorCode ?? "", code]
-          .map((part) => String(part).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64))
-          .join(":"),
-      );
-    }
-    if (retryMetadata && code !== "revert-changed" && code !== "lock-unavailable") {
-      return end("partial", "The original PDF remains restored, but the remaining metadata update could not be completed. The verified original backup and session recovery record were retained.", false, stage);
-    }
-    if (attemptedReplacement && record) {
-      let currentHash: string | undefined;
-      try {
-        currentHash = fileHash(path);
-      } catch {
-        currentHash = undefined;
-      }
-      if (currentHash === intendedHash) {
-        keepBackup = true;
-        record.partial = action === "Compress" ? "compressed-awaiting-metadata" : "restored-awaiting-metadata";
-        state.records.set(id, record);
-        return end(
-          "partial",
-          `The PDF was ${action === "Compress" ? "replaced" : "restored"}, but the remaining operation failed. The verified original backup and session recovery record were retained.`,
-          true,
-          stage,
-          action === "Compress" && typeof record.compressedSize === "number" ? record.compressedSize : null,
-        );
-      }
-      if (currentHash !== beforeHash) {
-        keepBackup = true;
-        record.partial = "replacement-state-uncertain";
-        state.records.set(id, record);
-        return end("uncertain", "The operation failed during file replacement. The attachment's current state could not be verified.", null, stage);
-      }
-      return end("replacement-unchanged", "File replacement failed. The attachment bytes were verified unchanged.", false, stage);
-    }
-    if (ENGINE_CODES.includes(code)) {
-      return end("engine", ENGINE_FAILURE, false, stage);
-    }
-    if (BLOCKED_MESSAGES[code]) {
-      return end(code, BLOCKED_MESSAGES[code], false, stage);
-    }
-    return end("failure", UNKNOWN_FAILURE, false, stage);
+    logFailure(error, code);
+    if (ENGINE_CODES.includes(code)) return untouched("engine", ENGINE_FAILURE, false, stage, beforeBytes);
+    const known = BLOCKED_MESSAGES[code];
+    if (known) return untouched(code as UntouchedCode, known, false, stage, beforeBytes);
+    return untouched("failure", UNKNOWN_FAILURE, false, stage, beforeBytes);
   } finally {
     if (output) await tryRemoveOwned(output, true);
     if (outputDir) await tryRemoveOwned(outputDir);
     if (path && state.pathBusy.get(path) === id) state.pathBusy.delete(path);
-    if (action === "Compress" && backupPath && !keepBackup) await tryRemoveOwned(backupPath, true);
+    if (createdBackup && ![...state.records.values()].some((record) => record.backupPath === createdBackup)) {
+      await tryRemoveOwned(createdBackup, true);
+    }
     state.busy.delete(id);
     resolveDone();
   }
@@ -458,7 +548,6 @@ export function hasSessionBackup(id: string): boolean {
 
 export function releaseOperation(): Promise<void> {
   state.stopping = true;
-  closeFeedbackForWindow();
   if (!releasePromise) {
     releasePromise = (async () => {
       if (state.ready) await state.ready;
@@ -475,16 +564,10 @@ export function releaseOperation(): Promise<void> {
         }
       }
       await releaseLock(lock);
-      closeFeedbackForWindow();
       state.records.clear();
     })();
   }
   return releasePromise;
-}
-
-export function onWindowClose(win: Window): void {
-  markWindowClosing(win);
-  closeFeedbackForWindow(win);
 }
 
 export function createOperation(root: string): OperationApi {
@@ -542,8 +625,8 @@ export function createOperation(root: string): OperationApi {
   return {
     ready,
     hooks: operationHooks,
-    compress: (item, report) => runOperation(item, "Compress", report),
-    revert: (item, report) => runOperation(item, "Revert", report),
+    compress: (item) => runOperation(item, "Compress"),
+    revert: (item) => runOperation(item, "Revert"),
     snapshot: () => ({
       ready: state.initialized,
       initializationError: state.initializationError,
@@ -553,7 +636,6 @@ export function createOperation(root: string): OperationApi {
       records: [...state.records.values()].map((record) => ({ ...record })),
       busy: [...state.busy.keys()],
       busyPaths: [...state.pathBusy.keys()],
-      uiErrors: state.uiErrors.map((entry) => ({ ...entry })),
     }),
   };
 }

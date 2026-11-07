@@ -52,15 +52,16 @@ Selecting MuPDF Compress in Zotero Settings shows one text field, Temporary
 folder. A blank value means Zotero's temporary directory. The folder must already
 exist and be writable. A change applies on the next Zotero launch; the current
 session keeps its folder and backups. Session backups live in a private UUID
-directory with an OS-held lock, and a normal close removes the current session
-folder after any active operation finishes. No quality preset, retention
+directory with an OS-held lock. Quitting Zotero or shutting the add-on down
+removes the current session folder after any active operation finishes. Closing
+a main window leaves the session folder in place. No quality preset, retention
 setting, or recovery override is offered.
 
 ## Layout
 
 - `addon/` contains the bootstrap lifecycle, manifest, default preferences, the
-  Settings pane markup, the progress window, the native binaries and their build
-  recipe, and the distribution license and notice files.
+  Settings pane markup, the native binaries and their build recipe, and the
+  distribution license and notice files.
 - `src/` contains the TypeScript startup, main-window and pane registration, the
   context menu, target resolution, the attachment operation, the session
   backup/lock/lifecycle handling, and the bundled-engine runner.
@@ -71,16 +72,12 @@ setting, or recovery override is offered.
 
 ## Testing
 
-Run the same project checks as CI:
+`mise run check` is the completion gate, and CI runs that same command. It
+includes lint, type checking, `node --test src/*.test.ts`, the build, and the
+distribution checks.
 
 ```sh
 mise run check
-```
-
-Run the unit tests:
-
-```sh
-node --test src/*.test.ts
 ```
 
 The isolated-profile driver and host scripts are local under `.local-test/` and
