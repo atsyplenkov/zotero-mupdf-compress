@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { log } from "./files";
-import { resolveTarget } from "./target";
+import { startCompress, startRevert } from "./queue";
+import { selectPdfs } from "./target";
 import type { Action } from "./types";
 
 const MENU_ID = "mupdf-compress-itemmenu";
@@ -15,10 +15,16 @@ function iconURL(path: string): string {
 }
 
 function applyMenuIcon(element: XULElement, path: string, kind: "menu" | "menuitem"): void {
-  const url = `url(${iconURL(path)})`;
+  const url = `url("${iconURL(path)}")`;
   element.classList.add("zotero-custom-menu-item", kind === "menu" ? "menu-iconic" : "menuitem-iconic");
+  element.setAttribute("image", iconURL(path));
   element.style.setProperty("--custom-menu-icon-light", url);
   element.style.setProperty("--custom-menu-icon-dark", url);
+  // A submenu icon is drawn from --menuitem-icon. The toolkit value hides it
+  // unless this declaration wins.
+  element.style.setProperty("--menuitem-icon", url, "important");
+  element.style.setProperty("-moz-context-properties", "fill, fill-opacity");
+  element.style.setProperty("fill", "currentColor");
 }
 
 type MainWindow = Window & {
@@ -56,13 +62,9 @@ function invoke(
   win: MainWindow | null,
   items: Zotero.Item[] | null | undefined,
 ): void {
-  const operation = addon.operation;
-  if (!operation) return;
-  const target = resolveTarget(currentItems(win, items));
-  const run = action === "Compress" ? operation.compress(target) : operation.revert(target);
-  run.catch((error: unknown) => {
-    log("menu", (error as { safeCode?: string }).safeCode || "action-failed");
-  });
+  const selected = currentItems(win, items) ?? [];
+  if (action === "Compress") startCompress(selected);
+  else startRevert(selected);
 }
 
 function registerWithMenuManager(): string | null {
@@ -79,7 +81,8 @@ function registerWithMenuManager(): string | null {
         onShowing(_event, context: _ZoteroTypes.MenuManager.BaseMenuContext & { items?: Zotero.Item[] }) {
           context.menuElem.id = MENU_ID;
           context.menuElem.setAttribute("label", SUBMENU_LABEL);
-          context.setVisible(!!resolveTarget(context.items));
+          applyMenuIcon(context.menuElem, PLUGIN_ICON, "menu");
+          context.setVisible(selectPdfs(context.items).length > 0);
         },
         menus: [
           {
@@ -133,7 +136,13 @@ function injectMenu(win: Window): void {
   menu.appendChild(children);
   const onShowing = (event: Event) => {
     if (event.target !== popup) return;
-    menu.hidden = !resolveTarget(pane.getSelectedItems());
+    let items: Zotero.Item[] = [];
+    try {
+      items = pane.getSelectedItems();
+    } catch {
+      items = [];
+    }
+    menu.hidden = selectPdfs(items).length === 0;
   };
   popup.addEventListener("popupshowing", onShowing);
   popup.appendChild(menu);

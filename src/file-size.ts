@@ -13,3 +13,17 @@ export function formatByteSize(bytes: number): string {
   const rounded = Math.round((bytes * scale) / chosen.divisor);
   return `${(rounded / scale).toFixed(chosen.fractionDigits)} ${chosen.unit}`;
 }
+
+export function formatSavedPercent(before: number, after: number): string {
+  if (!Number.isFinite(before) || before <= 0 || !Number.isFinite(after)) return "0.0%";
+  return `${((100 * (before - after)) / before).toFixed(1)}%`;
+}
+
+export function formatChangePercent(before: number, after: number, base = before): string {
+  if (!Number.isFinite(before) || !Number.isFinite(after) || !Number.isFinite(base) || base <= 0) return "0.0%";
+  const change = (100 * (after - before)) / base;
+  const magnitude = Math.abs(change).toFixed(1);
+  if (change > 0) return `+${magnitude}%`;
+  if (change < 0) return `-${magnitude}%`;
+  return "0.0%";
+}
