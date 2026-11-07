@@ -28,8 +28,7 @@ make build
 The installable XPI is `mu-pdf-compress_<version>.xpi` in the repository root.
 `.scaffold/` holds internal build output. The build uses
 `zotero-plugin-scaffold` and TypeScript. The add-on ID is
-`mupdf-compress@atsyplenkov.github.io`. The manifest update URL is a reserved
-`example.invalid` placeholder; there is no automatic-update feed.
+`mupdf-compress@atsyplenkov.github.io`.
 
 The XPI also carries the distribution material the license requires:
 
@@ -46,6 +45,18 @@ The XPI also carries the distribution material the license requires:
 of `mise run check`. Distributing an XPI also requires the verified
 `mupdf-1.28.5-source.tar.gz` archive to be available from the same place as the
 XPI; `SOURCE.md` states that requirement.
+
+## Releases
+
+Zotero reads
+`https://github.com/atsyplenkov/zotero-mupdf-compress/releases/download/release/update.json`.
+Pushing a `v*` tag runs the release workflow. That workflow publishes
+`mu-pdf-compress.xpi` on the version tag and refreshes `update.json` on the
+stable `release` tag. The update manifest carries the same `strict_min_version`
+and `strict_max_version` as the XPI manifest. An installed copy can then update
+inside Zotero. A fresh install still uses the XPI from the version release.
+The verified MuPDF source archive still has to be available from the same place
+as the XPI.
 
 ## Settings
 
