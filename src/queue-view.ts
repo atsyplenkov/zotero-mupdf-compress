@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { formatChangePercent } from "./file-size.ts";
+import type { Action } from "./types.ts";
 
 /** Title and column keys are existing Zotero strings. The dialog looks them up with Zotero.getString. */
 export const QUEUE_TITLE = "general.processing";
@@ -29,6 +30,10 @@ export function compressedHeadline(installed: number): string {
   return installed === 1 ? "1 PDF compressed" : `${installed} PDFs compressed`;
 }
 
+export function revertedHeadline(installed: number): string {
+  return installed === 1 ? "1 PDF reverted" : `${installed} PDFs reverted`;
+}
+
 export function queueStatus(phase: Phase): number {
   if (phase.kind === "waiting") return ROW_QUEUED;
   if (phase.kind === "running") return ROW_PROCESSING;
@@ -42,9 +47,11 @@ const FAILURE_REASONS: Record<string, string> = {
   encrypted: "Encrypted",
   unreadable: "Unreadable",
   "compress-changed": "File changed",
+  "revert-changed": "File changed",
   validation: "Not validated",
   backup: "Backup failed",
   "backup-invalid": "Backup unavailable",
+  "no-record": "No session backup",
   "reader-check-unavailable": "Reader check failed",
   "lock-unavailable": "Session busy",
   "unsafe-path": "Unsafe path",
@@ -66,11 +73,13 @@ const FAILURE_REASONS: Record<string, string> = {
   failure: "Failed",
 };
 
-export function queueMessage(phase: Phase): string {
+export function queueMessage(phase: Phase, action: Action = "Compress"): string {
   if (phase.kind !== "done") return "";
   const result = phase.result;
   if (result.kind === "installed" || result.kind === "rejected") {
-    return formatChangePercent(result.before, result.after);
+    // Revert compares both files with the original PDF, matching Compression's percent.
+    const base = action === "Revert" ? result.after : result.before;
+    return formatChangePercent(result.before, result.after, base);
   }
   return FAILURE_REASONS[result.code] ?? "Failed";
 }
@@ -78,7 +87,8 @@ export function queueMessage(phase: Phase): string {
 export function resultFromOutcome(outcome: OutcomeSizes): RowResult {
   const before = outcome.beforeBytes;
   const after = outcome.producedBytes;
-  if (outcome.changed === true && typeof before === "number" && typeof after === "number") {
+  // A metadata-only Revert reports success with changed false and both sizes.
+  if (outcome.code === "success" && typeof before === "number" && typeof after === "number") {
     return { kind: "installed", before, after };
   }
   if (outcome.code === "no-benefit" && typeof before === "number" && typeof after === "number") {

@@ -52,4 +52,6 @@ test("formatChangePercent marks a smaller PDF with a minus and a larger PDF with
   equal(formatChangePercent(13266359, 14300000), "+7.8%");
   equal(formatChangePercent(13266359, 13266359), "0.0%");
   equal(formatChangePercent(0, 10), "0.0%");
+  equal(formatChangePercent(18000, 100000, 100000), "+82.0%");
+  equal(formatChangePercent(85200, 100000, 100000), "+14.8%");
 });

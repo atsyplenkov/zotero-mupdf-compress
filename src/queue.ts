@@ -10,9 +10,10 @@ import {
   queueMessage,
   queueStatus,
   resultFromOutcome,
+  revertedHeadline,
 } from "./queue-view";
 import { selectPdfs } from "./target";
-import type { OperationReport } from "./types";
+import type { Action, OperationReport } from "./types";
 
 interface Row {
   libraryID: number;
@@ -51,6 +52,7 @@ interface ProgressQueuesApi {
 }
 
 interface Ledger {
+  action: Action;
   run: RunState;
   rows: Row[];
   closedByQueue: boolean;
@@ -119,24 +121,24 @@ function blocked(code: string): Phase {
   return { kind: "done", result: { kind: "blocked", before: null, code } };
 }
 
-function showRow(queue: ProgressQueueApi, row: Row): void {
+function showRow(queue: ProgressQueueApi, row: Row, action: Action): void {
   const item = refetch(row);
   if (!item) return;
   if (!queue.getRows().some((entry) => entry.id === item.id)) queue.addRow(item);
   const entry = queue.getRows().find((candidate) => candidate.id === item.id);
   // addRow stores the item title. The dialog reads this same row object.
   if (entry) entry.fileName = row.filename;
-  queue.updateRow(item.id, queueStatus(row.phase), queueMessage(row.phase));
+  queue.updateRow(item.id, queueStatus(row.phase), queueMessage(row.phase, action));
 }
 
 function publishRows(): void {
   if (!ledger || ledger.closedByQueue) return;
   const queue = ensureQueue();
   if (!queue) return;
-  for (const row of ledger.rows) showRow(queue, row);
+  for (const row of ledger.rows) showRow(queue, row, ledger.action);
 }
 
-async function runOneCompress(row: Row): Promise<void> {
+async function runOne(row: Row): Promise<void> {
   const operation = addon.operation;
   const item = refetch(row);
   if (!operation || !item) {
@@ -144,14 +146,17 @@ async function runOneCompress(row: Row): Promise<void> {
     publishRows();
     return;
   }
+  const action = ledger?.action ?? "Compress";
   row.phase = { kind: "running" };
   publishRows();
   try {
-    const outcome = await operation.compress(item, silentReport);
+    const outcome = action === "Revert"
+      ? await operation.revert(item, silentReport)
+      : await operation.compress(item, silentReport);
     row.phase = { kind: "done", result: resultFromOutcome(outcome) };
   } catch {
     row.phase = blocked("failure");
-    log("queue", "compress-failed");
+    log("queue", action === "Revert" ? "revert-failed" : "compress-failed");
   }
   publishRows();
 }
@@ -168,7 +173,8 @@ function settle(): void {
   ledger.run = "finished";
   publishRows();
   try {
-    ensureQueue()?.getDialog().setStatus(compressedHeadline(installedCount(ledger.rows)));
+    const headline = ledger.action === "Revert" ? revertedHeadline : compressedHeadline;
+    ensureQueue()?.getDialog().setStatus(headline(installedCount(ledger.rows)));
   } catch {
     log("queue", "status-failed");
   }
@@ -179,7 +185,7 @@ async function runPump(): Promise<void> {
     while (ledger && !halted && ledger.run === "processing") {
       const next = ledger.rows.find((row) => row.phase.kind === "waiting");
       if (!next) break;
-      await runOneCompress(next);
+      await runOne(next);
     }
   } finally {
     settle();
@@ -205,8 +211,7 @@ function openDialog(queue: ProgressQueueApi): boolean {
   }
 }
 
-export function startCompress(items: Zotero.Item[] | null | undefined): void {
-  const selected = selectPdfs(items);
+function begin(action: Action, selected: Zotero.Item[]): void {
   if (!selected.length || !addon.operation || halted) return;
   const queue = ensureQueue();
   if (!queue) {
@@ -222,6 +227,7 @@ export function startCompress(items: Zotero.Item[] | null | undefined): void {
     queue.cancel();
   }
   const next: Ledger = {
+    action,
     run: "processing",
     closedByQueue: false,
     rows: selected.map((item) => ({
@@ -243,6 +249,14 @@ export function startCompress(items: Zotero.Item[] | null | undefined): void {
     return;
   }
   ensurePump();
+}
+
+export function startCompress(items: Zotero.Item[] | null | undefined): void {
+  begin("Compress", selectPdfs(items));
+}
+
+export function startRevert(items: Zotero.Item[] | null | undefined): void {
+  begin("Revert", selectPdfs(items));
 }
 
 export function haltCompress(): Promise<void> {

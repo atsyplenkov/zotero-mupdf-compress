@@ -2,6 +2,7 @@
 
 import { equal } from "node:assert/strict";
 import { test } from "node:test";
+import { formatChangePercent } from "./file-size.ts";
 import {
   QUEUE_COLUMNS,
   QUEUE_TITLE,
@@ -14,6 +15,7 @@ import {
   queueMessage,
   queueStatus,
   resultFromOutcome,
+  revertedHeadline,
 } from "./queue-view.ts";
 
 const original = 13266359;
@@ -30,6 +32,12 @@ test("compressed headline counts installed PDFs", () => {
   equal(compressedHeadline(1), "1 PDF compressed");
   equal(compressedHeadline(0), "0 PDFs compressed");
   equal(compressedHeadline(2), "2 PDFs compressed");
+});
+
+test("reverted headline counts installed PDFs", () => {
+  equal(revertedHeadline(0), "0 PDFs reverted");
+  equal(revertedHeadline(1), "1 PDF reverted");
+  equal(revertedHeadline(2), "2 PDFs reverted");
 });
 
 test("a row shows the saved percent only after Compression produces a PDF", () => {
@@ -49,6 +57,15 @@ test("a row shows the saved percent only after Compression produces a PDF", () =
   equal(queueStatus(rejected), ROW_FAILED);
   equal(queueMessage(rejected), "+7.8%");
 
+  const restored: Phase = { kind: "done", result: { kind: "installed", before: 18000, after: 100000 } };
+  equal(queueStatus(restored), ROW_SUCCEEDED);
+  equal(queueMessage(restored, "Revert"), "+82.0%");
+  equal(formatChangePercent(100000, 18000), "-82.0%");
+
+  const smallSaving: Phase = { kind: "done", result: { kind: "installed", before: 85200, after: 100000 } };
+  equal(queueMessage(smallSaving, "Revert"), "+14.8%");
+  equal(formatChangePercent(100000, 85200), "-14.8%");
+
   const sameSize: Phase = { kind: "done", result: { kind: "rejected", before: original, after: original } };
   equal(queueStatus(sameSize), ROW_FAILED);
   equal(queueMessage(sameSize), "0.0%");
@@ -62,11 +79,21 @@ test("a row shows the saved percent only after Compression produces a PDF", () =
 
   const unknown: Phase = { kind: "done", result: { kind: "blocked", before: null, code: "other" } };
   equal(queueMessage(unknown), "Failed");
+
+  const revertChanged: Phase = { kind: "done", result: { kind: "blocked", before: original, code: "revert-changed" } };
+  equal(queueMessage(revertChanged), "File changed");
+
+  const noRecord: Phase = { kind: "done", result: { kind: "blocked", before: null, code: "no-record" } };
+  equal(queueMessage(noRecord), "No session backup");
 });
 
 test("resultFromOutcome keeps installed, rejected, and blocked apart", () => {
   equal(
     resultFromOutcome({ code: "success", changed: true, beforeBytes: original, producedBytes: smaller }).kind,
+    "installed",
+  );
+  equal(
+    resultFromOutcome({ code: "success", changed: false, beforeBytes: original, producedBytes: larger }).kind,
     "installed",
   );
   equal(

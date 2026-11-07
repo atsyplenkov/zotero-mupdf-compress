@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { log } from "./files";
-import { startCompress } from "./queue";
-import { resolveTarget, selectPdfs } from "./target";
+import { startCompress, startRevert } from "./queue";
+import { selectPdfs } from "./target";
 import type { Action } from "./types";
 
 const MENU_ID = "mupdf-compress-itemmenu";
@@ -63,18 +62,9 @@ function invoke(
   win: MainWindow | null,
   items: Zotero.Item[] | null | undefined,
 ): void {
-  const selected = currentItems(win, items);
-  if (action === "Compress") {
-    startCompress(selected ?? []);
-    return;
-  }
-  const operation = addon.operation;
-  if (!operation) return;
-  const target = resolveTarget(selected);
-  if (!target) return;
-  operation.revert(target).catch((error: unknown) => {
-    log("menu", (error as { safeCode?: string }).safeCode || "action-failed");
-  });
+  const selected = currentItems(win, items) ?? [];
+  if (action === "Compress") startCompress(selected);
+  else startRevert(selected);
 }
 
 function registerWithMenuManager(): string | null {
@@ -110,7 +100,6 @@ function registerWithMenuManager(): string | null {
             icon: iconURL(REVERT_ICON),
             onShowing(_event, context) {
               context.menuElem.setAttribute("label", "Revert");
-              context.setEnabled(!!resolveTarget(context.items));
             },
             onCommand(_event, context) {
               invoke("Revert", windowFor(context.menuElem), context.items);
@@ -135,7 +124,6 @@ function injectMenu(win: Window): void {
   applyMenuIcon(menu, PLUGIN_ICON, "menu");
   const children = doc.createXULElement("menupopup") as XULElement;
   const commands: WindowMenu["commands"] = [];
-  let revertEntry: XULElement | null = null;
   for (const action of ["Compress", "Revert"] as Action[]) {
     const entry = doc.createXULElement("menuitem") as XULElement;
     entry.setAttribute("label", action);
@@ -143,7 +131,6 @@ function injectMenu(win: Window): void {
     const listener: EventListener = () => invoke(action, main, pane.getSelectedItems());
     entry.addEventListener("command", listener);
     commands.push({ element: entry, listener });
-    if (action === "Revert") revertEntry = entry;
     children.appendChild(entry);
   }
   menu.appendChild(children);
@@ -156,9 +143,6 @@ function injectMenu(win: Window): void {
       items = [];
     }
     menu.hidden = selectPdfs(items).length === 0;
-    if (!revertEntry) return;
-    if (resolveTarget(items)) revertEntry.removeAttribute("disabled");
-    else revertEntry.setAttribute("disabled", "true");
   };
   popup.addEventListener("popupshowing", onShowing);
   popup.appendChild(menu);

@@ -22,7 +22,7 @@ async function startup({ rootURI }) {
   Zotero.MuPDFCompress.compress = (item) =>
     Zotero.MuPDFCompress.startCompress(item ? [item] : []);
   Zotero.MuPDFCompress.revert = (item) =>
-    Zotero.MuPDFCompress.operation.revert(item);
+    Zotero.MuPDFCompress.startRevert(item ? [item] : []);
   Zotero.MuPDFCompress.snapshot = () =>
     Zotero.MuPDFCompress.operation.snapshot();
   await Zotero.MuPDFCompress.hooks.onStartup();
