@@ -3,20 +3,28 @@
 import { equal } from "node:assert/strict";
 import { test } from "node:test";
 import {
-  type CompressStage,
+  QUEUE_COLUMNS,
+  QUEUE_TITLE,
+  ROW_FAILED,
+  ROW_PROCESSING,
+  ROW_QUEUED,
+  ROW_SUCCEEDED,
   type Phase,
-  barValue,
-  canRevert,
   compressedHeadline,
-  projectRow,
+  queueMessage,
+  queueStatus,
   resultFromOutcome,
-  runButton,
-  runHeadline,
 } from "./queue-view.ts";
 
 const original = 13266359;
 const smaller = 3131680;
 const larger = 14300000;
+
+test("the progress dialog title and columns are Zotero strings", () => {
+  equal(QUEUE_TITLE, "general.processing");
+  equal(QUEUE_COLUMNS[0], "pane.item.attachments.filename");
+  equal(QUEUE_COLUMNS[1], "pdfReader.size");
+});
 
 test("compressed headline counts installed PDFs", () => {
   equal(compressedHeadline(1), "1 PDF compressed");
@@ -24,111 +32,36 @@ test("compressed headline counts installed PDFs", () => {
   equal(compressedHeadline(2), "2 PDFs compressed");
 });
 
-test("unfinished runs say Processing and offer cancel", () => {
-  equal(runHeadline("processing", 3), "Processing");
-  equal(runHeadline("cancel-requested", 3), "Processing");
-  equal(runButton("processing"), "cancel");
-  equal(runButton("cancel-requested"), "cancel");
-  equal(runHeadline("finished", 1), "1 PDF compressed");
-  equal(runHeadline("finished", 0), "0 PDFs compressed");
-  equal(runButton("finished"), "close");
-});
-
-test("bar follows one row's stage and several rows' done count", () => {
+test("a row shows the saved percent only after Compression produces a PDF", () => {
   const waiting: Phase = { kind: "waiting" };
-  const replacing: Phase = { kind: "running", stage: "Replacing", before: original };
-  const preparing: Phase = { kind: "running", stage: "Preparing", before: null };
-  const done: Phase = { kind: "done", result: { kind: "blocked", before: null } };
-  equal(barValue([], "processing"), 100);
-  equal(barValue([{ phase: waiting }], "finished"), 100);
-  equal(barValue([{ phase: waiting }], "processing"), 0);
-  equal(barValue([{ phase: preparing }], "processing"), 0);
-  equal(barValue([{ phase: replacing }], "processing"), 100);
-  equal(barValue([{ phase: { kind: "running", stage: "Nope" as CompressStage, before: null } }], "processing"), 0);
-  equal(barValue([{ phase: done }], "processing"), 100);
-  equal(
-    barValue(
-      [
-        { phase: done },
-        { phase: replacing },
-      ],
-      "processing",
-    ),
-    50,
-  );
-  equal(
-    barValue(
-      [
-        { phase: done },
-        { phase: waiting },
-        { phase: waiting },
-      ],
-      "cancel-requested",
-    ),
-    33,
-  );
-});
+  equal(queueStatus(waiting), ROW_QUEUED);
+  equal(queueMessage(waiting), "");
 
-test("projectRow renders the locked size examples", () => {
-  const installed = projectRow("paper.pdf", {
-    kind: "done",
-    result: { kind: "installed", before: original, after: smaller },
-  });
-  equal(installed.icon, "tick");
-  equal(installed.file, "paper.pdf");
-  equal(installed.before, "13.3 MB");
-  equal(installed.after, "3.1 MB");
-  equal(installed.saved, "76.4%");
+  const running: Phase = { kind: "running" };
+  equal(queueStatus(running), ROW_PROCESSING);
+  equal(queueMessage(running), "");
 
-  const rejected = projectRow("paper.pdf", {
-    kind: "done",
-    result: { kind: "rejected", before: original, after: larger },
-  });
-  equal(rejected.icon, "cross");
-  equal(rejected.before, "13.3 MB");
-  equal(rejected.after, "14.3 MB");
-  equal(rejected.saved, "-7.8%");
+  const installed: Phase = { kind: "done", result: { kind: "installed", before: original, after: smaller } };
+  equal(queueStatus(installed), ROW_SUCCEEDED);
+  equal(queueMessage(installed), "-76.4%");
 
-  const equalSizes = projectRow("paper.pdf", {
-    kind: "done",
-    result: { kind: "rejected", before: original, after: original },
-  });
-  equal(equalSizes.icon, "cross");
-  equal(equalSizes.saved, "0.0%");
-});
+  const rejected: Phase = { kind: "done", result: { kind: "rejected", before: original, after: larger } };
+  equal(queueStatus(rejected), ROW_FAILED);
+  equal(queueMessage(rejected), "+7.8%");
 
-test("projectRow keeps empty cells until a PDF is produced", () => {
-  equal(projectRow("notes.pdf", { kind: "waiting" }).icon, "none");
-  equal(projectRow("notes.pdf", { kind: "waiting" }).before, "");
-  equal(projectRow("notes.pdf", { kind: "waiting" }).after, "");
-  equal(projectRow("notes.pdf", { kind: "waiting" }).saved, "");
+  const sameSize: Phase = { kind: "done", result: { kind: "rejected", before: original, after: original } };
+  equal(queueStatus(sameSize), ROW_FAILED);
+  equal(queueMessage(sameSize), "0.0%");
 
-  const running = projectRow("notes.pdf", { kind: "running", stage: "Compressing", before: original });
-  equal(running.icon, "none");
-  equal(running.before, "13.3 MB");
-  equal(running.after, "");
-  equal(running.saved, "");
+  const blocked: Phase = { kind: "done", result: { kind: "blocked", before: original, code: "repeated" } };
+  equal(queueStatus(blocked), ROW_FAILED);
+  equal(queueMessage(blocked), "Already compressed");
 
-  const unknownBefore = projectRow("notes.pdf", { kind: "running", stage: "Preparing", before: null });
-  equal(unknownBefore.before, "");
+  const open: Phase = { kind: "done", result: { kind: "blocked", before: null, code: "open" } };
+  equal(queueMessage(open), "Open in reader");
 
-  const blocked = projectRow("notes.pdf", { kind: "done", result: { kind: "blocked", before: original } });
-  equal(blocked.icon, "cross");
-  equal(blocked.before, "13.3 MB");
-  equal(blocked.after, "");
-  equal(blocked.saved, "");
-
-  const blockedUnknown = projectRow("notes.pdf", { kind: "done", result: { kind: "blocked", before: null } });
-  equal(blockedUnknown.before, "");
-
-  const reverted = projectRow("notes.pdf", {
-    kind: "done",
-    result: { kind: "reverted", before: smaller, after: original },
-  });
-  equal(reverted.icon, "none");
-  equal(reverted.before, "3.1 MB");
-  equal(reverted.after, "13.3 MB");
-  equal(reverted.saved, "");
+  const unknown: Phase = { kind: "done", result: { kind: "blocked", before: null, code: "other" } };
+  equal(queueMessage(unknown), "Failed");
 });
 
 test("resultFromOutcome keeps installed, rejected, and blocked apart", () => {
@@ -142,17 +75,10 @@ test("resultFromOutcome keeps installed, rejected, and blocked apart", () => {
   );
   const blocked = resultFromOutcome({ code: "repeated", changed: false, beforeBytes: original, producedBytes: null });
   equal(blocked.kind, "blocked");
-  if (blocked.kind === "blocked") equal(blocked.before, original);
+  if (blocked.kind === "blocked") {
+    equal(blocked.before, original);
+    equal(blocked.code, "repeated");
+  }
   const missing = resultFromOutcome({ code: "success", changed: true, beforeBytes: null, producedBytes: null });
   equal(missing.kind, "blocked");
-});
-
-test("canRevert follows the backup and a finished row that is not reverted", () => {
-  const installed: Phase = { kind: "done", result: { kind: "installed", before: original, after: smaller } };
-  const reverted: Phase = { kind: "done", result: { kind: "reverted", before: smaller, after: original } };
-  const waiting: Phase = { kind: "waiting" };
-  equal(canRevert(installed, true), true);
-  equal(canRevert(installed, false), false);
-  equal(canRevert(reverted, true), false);
-  equal(canRevert(waiting, true), false);
 });

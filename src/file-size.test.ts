@@ -2,7 +2,7 @@
 
 import { equal } from "node:assert/strict";
 import { test } from "node:test";
-import { formatByteSize, formatSavedPercent } from "./file-size.ts";
+import { formatByteSize, formatChangePercent, formatSavedPercent } from "./file-size.ts";
 
 const renders: Array<[number, string]> = [
   [0, "0 B"],
@@ -41,4 +41,15 @@ test("formatSavedPercent uses one decimal place", () => {
   equal(formatSavedPercent(0, 10), "0.0%");
   equal(formatSavedPercent(Number.NaN, 10), "0.0%");
   equal(formatSavedPercent(10, Number.POSITIVE_INFINITY), "0.0%");
+});
+
+test("formatChangePercent marks a smaller PDF with a minus and a larger PDF with a plus", () => {
+  equal(formatChangePercent(13266359, 3131680), "-76.4%");
+  equal(formatChangePercent(1000, 432), "-56.8%");
+  equal(formatChangePercent(10000, 9999), "-0.0%");
+  equal(formatChangePercent(1000, 1001), "+0.1%");
+  equal(formatChangePercent(10000, 10001), "+0.0%");
+  equal(formatChangePercent(13266359, 14300000), "+7.8%");
+  equal(formatChangePercent(13266359, 13266359), "0.0%");
+  equal(formatChangePercent(0, 10), "0.0%");
 });

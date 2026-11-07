@@ -18,3 +18,12 @@ export function formatSavedPercent(before: number, after: number): string {
   if (!Number.isFinite(before) || before <= 0 || !Number.isFinite(after)) return "0.0%";
   return `${((100 * (before - after)) / before).toFixed(1)}%`;
 }
+
+export function formatChangePercent(before: number, after: number): string {
+  if (!Number.isFinite(before) || before <= 0 || !Number.isFinite(after)) return "0.0%";
+  const change = (100 * (after - before)) / before;
+  const magnitude = Math.abs(change).toFixed(1);
+  if (change > 0) return `+${magnitude}%`;
+  if (change < 0) return `-${magnitude}%`;
+  return "0.0%";
+}
