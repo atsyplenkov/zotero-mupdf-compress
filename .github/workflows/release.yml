@@ -19,20 +19,33 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 0
-      # cache: true matches the check workflow. mise.lock pins the tools.
-      # jactionlint ignore=cache-poisoning
       - name: Toolchain
-        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d
         with:
-          cache: true
+          cache: false
           persist_github_token: false
       - name: Dependencies
         run: npm ci
+      - name: Require the version tag
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/v${version}^{}")"
       - name: Release
         run: npx zotero-plugin release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attach the MuPDF source archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          url=$(node -p "require('./addon/native/digests.json').source")
+          sum=$(node -p "require('./addon/native/digests.json').sourceSha256")
+          name=$(basename "$url")
+          curl -fsSL "$url" -o "$name"
+          echo "$sum  $name" | sha256sum -c -
+          gh release upload "v${version}" "$name" --clobber
