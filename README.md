@@ -22,10 +22,11 @@ Node 26.12.1 and npm 11.20.0 were used for the recorded build.
 
 ```sh
 npm ci
-npm run build
+make build
 ```
 
-The XPI is `.scaffold/build/mu-pdf-compress.xpi`. The build uses
+The installable XPI is `mu-pdf-compress_<version>.xpi` in the repository root.
+`.scaffold/` holds internal build output. The build uses
 `zotero-plugin-scaffold` and TypeScript. The add-on ID is
 `mupdf-compress@atsyplenkov.github.io`. The manifest update URL is a reserved
 `example.invalid` placeholder; there is no automatic-update feed.
@@ -72,12 +73,12 @@ setting, or recovery override is offered.
 
 ## Testing
 
-`mise run check` is the completion gate, and CI runs that same command. It
+`make test` runs `mise run check`, the completion gate also used by CI. It
 includes lint, type checking, `node --test src/*.test.ts`, the build, and the
 distribution checks.
 
 ```sh
-mise run check
+make test
 ```
 
 The isolated-profile driver and host scripts are local under `.local-test/` and

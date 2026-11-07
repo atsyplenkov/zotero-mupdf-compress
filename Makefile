@@ -6,9 +6,12 @@ VERSION := $(shell node -p "JSON.parse(require('node:fs').readFileSync('package.
 XPI := $(NAME)_$(VERSION).xpi
 BUILT_XPI := .scaffold/build/$(NAME).xpi
 
-.PHONY: build
+.PHONY: build test
 
 build:
 	npm run build
 	cp $(BUILT_XPI) $(XPI)
 	@echo "$(XPI)"
+
+test:
+	mise run check
