@@ -1,119 +1,128 @@
 # MuPDF Compress for Zotero
 
-AGPL-3.0-or-later Zotero extension that compresses the selected stored or
-linked PDFs, one after another, with a bundled MuPDF engine. This checkout currently
-implements the plugin lifecycle, the Settings pane (#11), the single-attachment
-context menu and stored-PDF Compression (#12), linked-PDF Compression (#13), the
-parent-item menu for a sole PDF (#14), Revert with shared-path ownership and
-partial recovery (#17), the session backup folder, ownership, and cleanup (#16),
-and the distribution material: license, notices, build recipe, build record, and
-packaged source (#18). The bundled
-engine in this checkout is the host build; `BUILD-RECORD.md` records its measured
-runtime requirements, including the GLIBC_2.43 limitation. That is not an
-approved portable baseline.
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/atsyplenkov/zotero-mupdf-compress)](https://github.com/atsyplenkov/zotero-mupdf-compress/releases/latest)
+[![Total downloads](https://img.shields.io/github/downloads/atsyplenkov/zotero-mupdf-compress/total)](https://github.com/atsyplenkov/zotero-mupdf-compress/releases)
+[![Works with Zotero 10](https://img.shields.io/badge/Works_with-Zotero_10-CC2936?logo=zotero)](https://www.zotero.org/)
 
-The manifest targets Zotero 7 and newer. Only Zotero 10.0.6 has been run so far.
+MuPDF Compress is a [Zotero](https://www.zotero.org/) extension for reducing the
+size of PDF attachments directly from your library. It uses a bundled
+[MuPDF](https://mupdf.com/) engine to process files locally, without uploading them
+to an external service.
 
-![](assets/interface.png)
+Select your items, right-click, and choose **Compress PDF → Compress**. Review the
+results and, if needed, use **Revert** to recover the original PDFs during the
+same Zotero session.
 
-## Build
+![MuPDF Compress context menu and settings](assets/interface.png)
 
-Node 26.12.1 and npm 11.20.0 were used for the recorded build.
+## Features
+
+- Compress individual PDFs or process multiple selected items in sequence.
+- Work with both stored attachments and linked attachments.
+- See the outcome and file-size reduction for each PDF.
+- Replace an attachment only when the compressed output passes validation and is
+  smaller.
+- Keep a verified session backup so you can revert a successful compression before
+  closing Zotero.
+
+Compression uses fixed settings, including downsampling color and grayscale
+images to 150 DPI and JPEG recompression at quality 85. **Image compression is
+lossy:** inspect the results before discarding your originals. Savings depend on
+the PDF; some files cannot be made smaller.
+
+## Installation
+
+> [!IMPORTANT]
+> The current bundled engine is built for **Linux x86-64** and requires
+> **glibc 2.43**. It is not a portable Linux build, and this release does not
+> include Windows or macOS binaries.
+>
+> Tested with **Zotero 10.0.6**. The extension manifest allows Zotero 7–10.0.x,
+> but earlier versions have not been tested.
+
+1. Download `mu-pdf-compress.xpi` from the **Assets** section of the
+   [latest release](https://github.com/atsyplenkov/zotero-mupdf-compress/releases/latest).
+2. In Zotero, open **Tools → Plugins**.
+3. Click the gear button, choose **Install Plugin From File…**, and select the
+   downloaded `.xpi`.
+
+If Firefox tries to install the file as a browser extension, right-click the
+download link and choose **Save Link As…**.
+
+After installation, Zotero can check for plugin updates. See the
+[changelog](CHANGELOG.md) for release notes.
+
+## Usage
+
+### Compress PDFs
+
+1. Close the PDFs you want to compress in Zotero’s reader.
+2. Select PDF attachments or parent items in your library. Selecting a parent
+   item includes its PDF attachments.
+3. Right-click and choose **Compress PDF → Compress**.
+4. Review the results window for each file’s outcome and size reduction.
+
+![Batch compression results showing outcomes and file-size reductions](assets/batch_compression.png)
+
+Compression keeps the same Zotero attachment item and file path. Stored
+attachments are marked for upload through Zotero file sync. Linked attachments
+are changed at their existing location.
+
+Encrypted PDFs are not processed. Files open in Zotero’s reader must be closed
+before compression or Revert.
+
+### Revert a compression
+
+Select the attachment or its parent item, then choose **Compress PDF → Revert**
+from the context menu.
+
+Revert restores the original PDF from its session backup. If the attachment’s
+path or contents have changed since compression, Revert is blocked to avoid
+overwriting those changes.
+
+> [!WARNING]
+> Session backups are temporary. They are removed when Zotero quits or the
+> extension shuts down, and Revert is not available after a restart, including
+> after a crash. Keep separate backups of important files.
+
+### Temporary folder
+
+Open **Zotero Settings → MuPDF Compress** to choose where session backups are
+stored.
+
+Leave **Temporary folder** blank to use Zotero’s temporary directory, or choose
+an existing writable folder. Changes take effect the next time Zotero starts;
+the current session keeps using its original folder.
+
+## Development
+
+Tool versions are pinned in [`mise.toml`](mise.toml) and
+[`package.json`](package.json).
 
 ```sh
+mise install
 npm ci
 make build
 ```
 
-The installable XPI is `mu-pdf-compress_<version>.xpi` in the repository root.
-`.scaffold/` holds internal build output. The build uses
-`zotero-plugin-scaffold` and TypeScript. The add-on ID is
-`mupdf-compress@atsyplenkov.github.io`.
+The installable extension is written to `mu-pdf-compress_<version>.xpi` in the
+repository root.
 
-The XPI also carries the distribution material the license requires:
-
-- `LICENSE`, `notices/`, and `THIRD-PARTY.md` for the project, MuPDF,
-  third-party libraries, CMaps, fonts, and hyphenation patterns.
-- `SOURCE.md` for the MuPDF 1.28.5 source pin, source access, and build
-  instructions.
-- `native/build-engine.sh` and `native/session-lock.c` for the native build.
-- `BUILD-RECORD.md` for the measured toolchain, flags, digests, linkage, and
-  symbol requirements.
-- `source/` for the matching TypeScript and build configuration.
-
-`scripts/check-distribution.py` checks those packaged contents and runs as part
-of `mise run check`. Distributing an XPI also requires the verified
-`mupdf-1.28.5-source.tar.gz` archive to be available from the same place as the
-XPI; `SOURCE.md` states that requirement.
-
-## Releases
-
-Zotero reads
-`https://github.com/atsyplenkov/zotero-mupdf-compress/releases/download/release/update.json`.
-Pushing a stable `vMAJOR.MINOR.PATCH` tag runs the release workflow. The tag must
-match the version in `package.json` and point to the checked-out commit, including
-when the workflow is started manually. Prerelease versions are rejected. The
-workflow publishes `mu-pdf-compress.xpi` on the version tag and refreshes
-`update.json` on the stable `release` tag. It refuses to replace a feed that
-already offers a newer version, and it checks published version releases before
-accepting a missing feed (HTTP 404). Other download errors and malformed feeds
-stop publication.
-The update manifest carries the same `strict_min_version` and
-`strict_max_version` as the XPI manifest. An installed copy can then update
-inside Zotero. A fresh install still uses the XPI from the version release.
-The workflow first builds and checks the XPI, verifies the MuPDF source archive,
-then uploads both files and the matching update manifest to a draft release. It
-publishes the draft before refreshing the stable feed. A retry uses the files
-from an already published version release and leaves them unchanged. The source
-archive remains alongside the XPI on that release.
-
-Copies installed with the old `example.invalid` update URL need one manual
-installation of an XPI containing the real update URL. Subsequent releases can
-then be discovered through Zotero's update check.
-
-## Settings
-
-Selecting MuPDF Compress in Zotero Settings shows one text field, Temporary
-folder. A blank value means Zotero's temporary directory. The folder must already
-exist and be writable. A change applies on the next Zotero launch; the current
-session keeps its folder and backups. Session backups live in a private UUID
-directory with an OS-held lock. Quitting Zotero or shutting the add-on down
-removes the current session folder after any active operation finishes. Closing
-a main window leaves the session folder in place. No quality preset, retention
-setting, or recovery override is offered.
-
-## Layout
-
-- `addon/` contains the bootstrap lifecycle, manifest, default preferences, the
-  Settings pane markup, the native binaries and their build recipe, and the
-  distribution license and notice files.
-- `src/` contains the TypeScript startup, main-window and pane registration, the
-  context menu, target resolution, the attachment operation, the session
-  backup/lock/lifecycle handling, and the bundled-engine runner.
-- `scripts/check-distribution.py` checks the built XPI contents.
-- `typings/` contains the sandbox globals and generated preference typing.
-  `npm run build` regenerates `typings/prefs.d.ts` and an excluded
-  `typings/i10n.d.ts`.
-
-## Testing
-
-`make test` runs `mise run check`, the completion gate also used by CI. It
-includes lint, type checking, `node --test src/*.test.ts scripts/*.test.mjs`, the build, and the
-distribution checks.
+Run the same checks used by CI:
 
 ```sh
 make test
 ```
 
-The isolated-profile driver and host scripts are local under `.local-test/` and
-are not committed. See
-[docs/testing/zotero-environment.md](docs/testing/zotero-environment.md) for the
-isolated Zotero launcher and
-[docs/testing/pdf-corpus.md](docs/testing/pdf-corpus.md) for fixture generation.
+This runs linting, type checking, tests, the build, and distribution checks. For
+manual testing, see the
+[isolated Zotero environment](docs/testing/zotero-environment.md) and
+[PDF test corpus](docs/testing/pdf-corpus.md).
 
 ## License
 
-AGPL-3.0-or-later. The XPI carries `LICENSE`, the MuPDF license, the
-third-party, CMap, and font notices, the native build recipe, the measured build
-record, and the matching extension source. See `SOURCE.md` in the XPI for
-corresponding-source access.
+Licensed under [AGPL-3.0-or-later](LICENSE), without warranty. The bundled MuPDF
+engine and its dependencies are covered by their respective
+[licenses and notices](addon/THIRD-PARTY.md). See
+[SOURCE.md](addon/SOURCE.md) for source code and build instructions.
