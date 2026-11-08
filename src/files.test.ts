@@ -2,7 +2,7 @@
 
 import { deepEqual, equal, ifError, match, notEqual, rejects, throws } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, chmod, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as nodeJoin } from "node:path";
@@ -134,41 +134,64 @@ test("Windows replacement requires security metadata merging without ignore-erro
   }
 });
 
-test("Windows replacement retains an inherited attachment ACL from a different parent", {
-  skip: process.platform !== "win32",
-}, async () => {
-  const folder = await mkdtemp(nodeJoin(tmpdir(), "mupdf replace café 文献-"));
-  const helper = process.env.MUPDF_WINDOWS_TEST_HOST;
-  try {
-    if (!helper) throw new Error("MUPDF_WINDOWS_TEST_HOST is required");
-    const granted = spawnSync("icacls.exe", [folder, "/grant", "*S-1-5-32-545:(OI)(CI)RX"], { encoding: "utf8" });
-    ifError(granted.error);
-    equal(granted.status, 0, granted.stderr);
-    const privateDirectory = nodeJoin(folder, "private");
-    const { ensureWindowsPrivateDirectory } = await import("./test-fixtures/windows-node-host.mjs");
-    ensureWindowsPrivateDirectory(privateDirectory, { ignoreExisting: false });
-    const attachment = nodeJoin(folder, "attachment.pdf");
-    const output = nodeJoin(privateDirectory, "replacement.pdf");
-    await writeFile(attachment, "original");
-    await writeFile(output, "replacement");
-    const descriptor = (path: string) => {
-      const result = spawnSync(helper, ["--test-security-descriptor", path], { encoding: "utf8" });
+for (const scenario of [
+  { name: "an inherited attachment ACL from a different parent", sibling: false, acl: "inherited" },
+  { name: "an inherited attachment ACL from the same parent", sibling: true, acl: "inherited" },
+  { name: "a protected attachment ACL from a different parent", sibling: false, acl: "protected" },
+  { name: "a mixed attachment ACL from a different parent", sibling: false, acl: "mixed" },
+]) {
+  test(`Windows replacement retains ${scenario.name}`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    const folder = await mkdtemp(nodeJoin(tmpdir(), "mupdf replace café 文献-"));
+    const helper = process.env.MUPDF_WINDOWS_TEST_HOST;
+    try {
+      if (!helper) throw new Error("MUPDF_WINDOWS_TEST_HOST is required");
+      const granted = spawnSync("icacls.exe", [folder, "/grant", "*S-1-5-32-545:(OI)(CI)RX"], { encoding: "utf8" });
+      ifError(granted.error);
+      equal(granted.status, 0, granted.stderr);
+      const privateDirectory = nodeJoin(folder, "private");
+      const { ensureWindowsPrivateDirectory } = await import("./test-fixtures/windows-node-host.mjs");
+      ensureWindowsPrivateDirectory(privateDirectory, { ignoreExisting: false });
+      const attachment = nodeJoin(folder, "attachment.pdf");
+      let output = nodeJoin(privateDirectory, "replacement.pdf");
+      await writeFile(attachment, "original");
+      await writeFile(output, "replacement");
+      if (scenario.acl !== "inherited") {
+        const args = scenario.acl === "protected"
+          ? [attachment, "/inheritance:d"]
+          : [attachment, "/grant", "*S-1-5-11:R"];
+        const changed = spawnSync("icacls.exe", args, { encoding: "utf8" });
+        ifError(changed.error);
+        equal(changed.status, 0, changed.stderr);
+      }
+      const descriptor = (path: string) => {
+        const result = spawnSync(helper, ["--test-security-descriptor", path], { encoding: "utf8" });
+        ifError(result.error);
+        equal(result.status, 0, result.stderr);
+        return result.stdout;
+      };
+      const before = descriptor(attachment);
+      match(before, scenario.acl === "protected" ? /D:P/ : /D:(?!P)/);
+      const privateAcl = descriptor(output);
+      notEqual(before, privateAcl);
+      if (scenario.sibling) {
+        const sibling = nodeJoin(folder, "replacement.pdf");
+        await rename(output, sibling);
+        output = sibling;
+        equal(descriptor(output), privateAcl, "Moving the output must keep its bytes private");
+      }
+      const result = spawnSync(helper, ["--test-replace-file", attachment, output], { encoding: "utf8" });
       ifError(result.error);
       equal(result.status, 0, result.stderr);
-      return result.stdout;
-    };
-    const before = descriptor(attachment);
-    match(before, /D:(?!P)/);
-    notEqual(before, descriptor(output));
-    const result = spawnSync(helper, ["--test-replace-file", attachment, output], { encoding: "utf8" });
-    ifError(result.error);
-    equal(result.status, 0, result.stderr);
-    equal(await readFile(attachment, "utf8"), "replacement");
-    equal(descriptor(attachment), before);
-  } finally {
-    await rm(folder, { recursive: true, force: true });
-  }
-});
+      equal(await readFile(attachment, "utf8"), "replacement");
+      equal(descriptor(attachment), before);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
+}
 
 test("Windows path checks reject a hard-linked regular file", () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "ChromeUtils");
