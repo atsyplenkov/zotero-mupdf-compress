@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "platform": "linux-x86_64",
+  "sourceRevision": "78f4f21dc134100fc54f3332827f2e6d4f575d09",
+  "source": {
+    "url": "https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-source.tar.gz",
+    "sha256": "98a5c10cda20c3992cdf76ff6b2a1149c32bd79cc796d3f703230b1185b7e934"
+  },
+  "helperSourceSha256": "538fe7eac08a4cf9e8f29cdc9931286b6af36189ed68b7b14bd0012dd9b210cc",
+  "buildInputs": {
+    "addon/native/build-engine.sh": "4efe47bcf0c584ca0f1926fc3a49020d3da07208b7fb66fdad7e8bc429e2e02d",
+    "addon/native/linux.Dockerfile": "a408f24ff085d36d95452646e488dbb94223bb11d12cd9719251f26b7a145922",
+    "scripts/inspect-linux-native.py": "7c99d97467e4fb1427d5c722a60d4dd552cb03618c623173f55b66ece3c25e16"
+  },
+  "container": {
+    "base": "ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11",
+    "imageId": "sha256:868b6b19c70ddce8812dcc8c0179124ec7454b54d2624512788cb8fa01cec3a0",
+    "osRelease": "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.5 LTS (Jammy Jellyfish)\"\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=jammy"
+  },
+  "toolchain": {
+    "cc": "cc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+    "cxx": "c++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+    "make": "GNU Make 4.3",
+    "binutils": "GNU readelf (GNU Binutils for Ubuntu) 2.38",
+    "packages": "binutils=2.38-4ubuntu2.12\nbuild-essential=12.9ubuntu3\nca-certificates=20260816ubuntu0.22.04.2\ncurl=7.81.0-1ubuntu1.30\ng++=4:11.2.0-1ubuntu1\ngcc=4:11.2.0-1ubuntu1\nlibc6=2.35-0ubuntu3.15\nlibc6-dev=2.35-0ubuntu3.15\nmake=4.3-4.1build1\npython3=3.10.6-1~22.04.1"
+  },
+  "commands": [
+    "make -C /work/.scaffold/native-build/build/mupdf-1.28.5-source -j4 build=release tools HAVE_X11=no HAVE_GLUT=no HAVE_LIBCRYPTO=no HAVE_CURL=no",
+    "cc -std=c11 -O2 -Wall -Wextra -Werror /work/addon/native/session-lock.c -o /work/addon/native/linux-x86_64/session-lock"
+  ],
+  "files": [
+    {
+      "name": "mutool",
+      "sha256": "e8e0427f8a5598f777697820fe69b5c52e040dcb0db8e9395bbec6d7b951735b",
+      "glibcMax": "2.35",
+      "glibcVersions": [
+        "GLIBC_2.2.5",
+        "GLIBC_2.3",
+        "GLIBC_2.3.2",
+        "GLIBC_2.3.4",
+        "GLIBC_2.4",
+        "GLIBC_2.7",
+        "GLIBC_2.11",
+        "GLIBC_2.14",
+        "GLIBC_2.25",
+        "GLIBC_2.27",
+        "GLIBC_2.29",
+        "GLIBC_2.33",
+        "GLIBC_2.34",
+        "GLIBC_2.35"
+      ],
+      "needed": [
+        "libm.so.6",
+        "libc.so.6"
+      ],
+      "interpreter": "/lib64/ld-linux-x86-64.so.2"
+    },
+    {
+      "name": "session-lock",
+      "sha256": "8b47d059fb0f8202afa5ea20ca505ae7df6555272f9fb430d0f602b35ca5d944",
+      "glibcMax": "2.34",
+      "glibcVersions": [
+        "GLIBC_2.2.5",
+        "GLIBC_2.4",
+        "GLIBC_2.33",
+        "GLIBC_2.34"
+      ],
+      "needed": [
+        "libc.so.6"
+      ],
+      "interpreter": "/lib64/ld-linux-x86-64.so.2"
+    }
+  ]
+}

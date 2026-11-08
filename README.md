@@ -137,6 +137,12 @@ checks cover native execution and host-API adapters, not Zotero UI integration
 or every Linux distribution. Container package versions and compiler commands
 are recorded; the build is not claimed to be bit-for-bit reproducible.
 
+The [recorded native build and candidate test run](https://github.com/atsyplenkov/zotero-mupdf-compress/actions/runs/42474409571)
+measured `GLIBC_2.35` for `mutool` and `GLIBC_2.34` for `session-lock`.
+Its 13 native/session tests passed in each of Ubuntu 22.04.5 (glibc 2.35)
+and Ubuntu 24.04.5 (glibc 2.39). These are the tested container environments,
+separate from the glibc 2.35 compatibility target.
+
 The source remains pinned to MuPDF 1.28.5 without patches for this development
 slice. [Issue #34](https://github.com/atsyplenkov/zotero-mupdf-compress/issues/34)
 tracks the agreed security patch. A final release must rebuild and retest that
