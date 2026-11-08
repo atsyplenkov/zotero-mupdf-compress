@@ -20,10 +20,18 @@ REQUIRED = [
     "THIRD-PARTY.md",
     "BUILD-RECORD.md",
     "native/build-engine.sh",
+    "native/linux.Dockerfile",
     "native/session-lock.c",
+    "native/linux-x86_64/build-record.json",
+    "native/linux-x86_64/build-trace.txt",
+    "source/scripts/inspect-linux-native.py",
+    "source/scripts/extract-linux-candidate.py",
+    "source/scripts/run-linux-candidate-tests.sh",
+    "source/.github/workflows/linux-candidate.yml",
     "native/digests.json",
-    "native/mutool",
-    "native/session-lock",
+    "native/components.json",
+    "native/linux-x86_64/mutool",
+    "native/linux-x86_64/session-lock",
     "notices/MuPDF-COPYING",
     "notices/Adobe-CMap-NOTICES.md",
     "notices/thirdparty/README",
@@ -48,6 +56,9 @@ REQUIRED = [
     "source/zotero-plugin.config.ts",
     "source/typings/global.d.ts",
     "source/LICENSE",
+    "source/Makefile",
+    "source/mise.toml",
+    "source/mise.lock",
 ]
 SOURCE_FILES = [
     "LICENSE",
@@ -56,6 +67,13 @@ SOURCE_FILES = [
     "tsconfig.json",
     "zotero-plugin.config.ts",
     "typings/global.d.ts",
+    "Makefile",
+    "mise.toml",
+    "mise.lock",
+    "scripts/inspect-linux-native.py",
+    "scripts/extract-linux-candidate.py",
+    "scripts/run-linux-candidate-tests.sh",
+    ".github/workflows/linux-candidate.yml",
 ]
 AGPL = ("GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3")
 
@@ -98,8 +116,8 @@ def main() -> int:
             update_url == UPDATE_URL,
             "manifest update_url is not the GitHub releases update manifest",
         )
-        require(bool(zotero.get("strict_min_version")), "manifest strict_min_version is empty")
-        require(bool(zotero.get("strict_max_version")), "manifest strict_max_version is empty")
+        require(zotero.get("strict_min_version") == "10.0", "manifest must require Zotero 10")
+        require(zotero.get("strict_max_version") == "10.*", "manifest must be limited to Zotero 10")
         require(UPDATE_JSON.is_file(), f"Missing {UPDATE_JSON}")
         if UPDATE_JSON.is_file():
             published = json.loads(UPDATE_JSON.read_text(encoding="utf-8"))
@@ -144,9 +162,41 @@ def main() -> int:
         for name in ("mutool", "session-lock"):
             digest = str(digests.get(name, ""))
             require(bool(SHA256.fullmatch(digest)), f"digests.json has no valid {name} digest")
-            actual = hashlib.sha256(read("native/" + name)).hexdigest()
+            actual = hashlib.sha256(read("native/linux-x86_64/" + name)).hexdigest()
             require(actual == digest, f"packaged {name} does not match its recorded digest")
             require(actual in read("BUILD-RECORD.md").decode(), f"BUILD-RECORD.md does not state the {name} digest")
+        components = json.loads(read("native/components.json"))
+        require(components.get("schemaVersion") == 1, "unsupported component manifest version")
+        require(components.get("source") == MUPDF_SOURCE, "components.json source URL differs from the pin")
+        require(components.get("sourceSha256") == MUPDF_SHA256, "components.json source checksum differs from the pin")
+        platforms = components.get("platforms", {})
+        require("linux-x86_64" in platforms, "components.json has no Linux x86-64 set")
+        for platform_id, platform in platforms.items():
+            files = platform.get("files", [])
+            identity = hashlib.sha256(json.dumps(files, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+            require(platform.get("artifact") == identity, f"{platform_id} artifact identity differs from its files")
+            if platform_id == "linux-x86_64":
+                require(platform.get("os") == "Linux" and platform.get("abi") == "x86_64-gcc3", "incorrect Linux runtime selection")
+            seen = set()
+            for component in files:
+                name = component.get("name", "")
+                safe_name = bool(re.fullmatch(r"[a-zA-Z0-9_-][a-zA-Z0-9._-]*", name))
+                require(safe_name and name not in seen, f"{platform_id} has an unsafe or duplicate component name")
+                seen.add(name)
+                path = component.get("path", "")
+                require(path == f"{platform_id}/{name}", f"{platform_id} has an unsafe component path")
+                entry = "native/" + path
+                require(entry in names, f"missing component: {entry}")
+                require(isinstance(component.get("executable"), bool), f"{entry} has no executable mode")
+                digest = component.get("sha256", "")
+                require(bool(SHA256.fullmatch(digest)), f"{entry} has an invalid digest")
+                if entry in names:
+                    require(hashlib.sha256(read(entry)).hexdigest() == digest, f"component digest mismatch: {entry}")
+                if platform_id == "linux-x86_64" and name in ("mutool", "session-lock"):
+                    require(component.get("executable") is True, f"{name} must be executable")
+                    require(digest == digests.get(name), f"{name} digest records disagree")
+            require({"mutool", "session-lock"} <= seen, f"{platform_id} is missing required executables")
+
         require(digests.get("source") == MUPDF_SOURCE, "digests.json source URL differs from the pin")
         require(digests.get("sourceSha256") == MUPDF_SHA256, "digests.json source checksum differs from the pin")
 
@@ -154,8 +204,36 @@ def main() -> int:
         require(MUPDF_SOURCE in source, "SOURCE.md does not name the pinned MuPDF source")
         require(MUPDF_SHA256 in source, "SOURCE.md does not state the pinned source checksum")
         record = read("BUILD-RECORD.md").decode()
-        require("GLIBC_2.43" in record, "BUILD-RECORD.md does not record the measured runtime symbol requirement")
         require("not" in record.lower(), "BUILD-RECORD.md does not state its limits")
+        build = json.loads(read("native/linux-x86_64/build-record.json"))
+        require(build.get("schemaVersion") == 1 and build.get("platform") == "linux-x86_64", "invalid Linux build record")
+        require(bool(re.fullmatch(r"[a-f0-9]{40}", build.get("sourceRevision", ""))), "build record has no source revision")
+        require(build.get("source") == {"url": MUPDF_SOURCE, "sha256": MUPDF_SHA256}, "build record source differs from the pin")
+        require(build.get("helperSourceSha256") == hashlib.sha256(read("native/session-lock.c")).hexdigest(), "build record helper source mismatch")
+        for path, entry in {
+            "addon/native/build-engine.sh": "native/build-engine.sh",
+            "addon/native/linux.Dockerfile": "native/linux.Dockerfile",
+            "scripts/inspect-linux-native.py": "source/scripts/inspect-linux-native.py",
+        }.items():
+            require(build.get("buildInputs", {}).get(path) == hashlib.sha256(read(entry)).hexdigest(), f"build recipe mismatch: {path}")
+            require(read(entry) == (REPO / path).read_bytes(), f"packaged build recipe differs: {path}")
+        container = build.get("container", {})
+        require(bool(re.fullmatch(r"ubuntu:22\.04@sha256:[a-f0-9]{64}", container.get("base", ""))), "build container must pin Ubuntu 22.04 by digest")
+        require(bool(re.fullmatch(r"sha256:[a-f0-9]{64}", container.get("imageId", ""))), "build record has no container image identity")
+        require('VERSION_ID="22.04"' in container.get("osRelease", ""), "build record OS is not Ubuntu 22.04")
+        require(bool(build.get("commands")), "build record has no commands")
+        require(all(build.get("toolchain", {}).get(key) for key in ("cc", "cxx", "make", "binutils", "packages")), "build record has incomplete toolchain evidence")
+        measured = {item["name"]: item for item in build.get("files", [])}
+        require(set(measured) == {"mutool", "session-lock"}, "build record is missing executable measurements")
+        for name, item in measured.items():
+            require(item.get("sha256") == digests.get(name), f"{name} build record digest mismatch")
+            version = item.get("glibcMax", "")
+            valid_version = bool(re.fullmatch(r"[0-9]+\.[0-9]+", version))
+            require(valid_version and tuple(map(int, version.split("."))) <= (2, 35), f"{name} exceeds the glibc 2.35 target")
+            require(item.get("interpreter") == "/lib64/ld-linux-x86-64.so.2", f"{name} has an unexpected ELF interpreter")
+            needed = set(item.get("needed", []))
+            require("libc.so.6" in needed and needed <= {"libc.so.6", "libm.so.6"}, f"{name} has unexpected runtime libraries")
+            require(f"GLIBC_{version}" in record, f"BUILD-RECORD.md is missing measured {name} requirements")
 
         for name in SOURCE_FILES:
             require(

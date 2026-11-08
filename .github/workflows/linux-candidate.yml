@@ -1,0 +1,85 @@
+name: Linux candidate
+on:
+  pull_request:
+  push:
+    branches: [main, 'native-candidate/**']
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  linux-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      LINUX_BASE_IMAGE: ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+      LINUX_NEWER_IMAGE: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Toolchain
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          cache: true
+          persist_github_token: false
+      - name: Dependencies
+        run: npm ci
+      - name: Build Linux native programs
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty-context"
+          docker build --file addon/native/linux.Dockerfile --tag mupdf-linux-baseline:ci \
+            --build-arg BASE_IMAGE="$LINUX_BASE_IMAGE" "$RUNNER_TEMP/empty-context"
+          image_id=$(docker image inspect --format '{{.Id}}' mupdf-linux-baseline:ci)
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$PWD,target=/work" --workdir /work \
+            --env NATIVE_BASE_IMAGE="$LINUX_BASE_IMAGE" --env NATIVE_IMAGE_ID="$image_id" \
+            --env NATIVE_SOURCE_REVISION="$GITHUB_SHA" \
+            mupdf-linux-baseline:ci bash addon/native/build-engine.sh
+          cat addon/native/linux-x86_64/build-record.json
+      - name: Run project checks
+        run: make test
+      - name: Build and inspect the candidate XPI
+        run: |
+          make build
+          python3 scripts/check-distribution.py
+          version=$(node -p "require('./package.json').version")
+          xpi="$PWD/mu-pdf-compress_${version}.xpi"
+          sha256sum "$xpi"
+          python3 scripts/extract-linux-candidate.py "$xpi" "$RUNNER_TEMP/candidate-native"
+          python3 scripts/inspect-linux-native.py "$RUNNER_TEMP/candidate-native"
+      - name: Test the candidate in Ubuntu 22.04
+        run: |
+          set -o pipefail
+          scripts/run-linux-candidate-tests.sh mupdf-linux-baseline:ci "$RUNNER_TEMP/candidate-native" \
+            2>&1 | tee "$RUNNER_TEMP/baseline-tests.txt"
+      - name: Test the candidate in Ubuntu 24.04
+        run: |
+          set -o pipefail
+          docker build --file addon/native/linux.Dockerfile --tag mupdf-linux-newer:ci \
+            --build-arg BASE_IMAGE="$LINUX_NEWER_IMAGE" "$RUNNER_TEMP/empty-context"
+          scripts/run-linux-candidate-tests.sh mupdf-linux-newer:ci "$RUNNER_TEMP/candidate-native" \
+            2>&1 | tee "$RUNNER_TEMP/newer-tests.txt"
+      - name: Prepare the tested candidate
+        run: |
+          mkdir -p "$RUNNER_TEMP/candidate"
+          version=$(node -p "require('./package.json').version")
+          cp "mu-pdf-compress_${version}.xpi" .scaffold/build/update.json \
+            .scaffold/native-build/downloads/mupdf-1.28.5-source.tar.gz \
+            "$RUNNER_TEMP/baseline-tests.txt" "$RUNNER_TEMP/newer-tests.txt" "$RUNNER_TEMP/candidate/"
+          tar -czf "$RUNNER_TEMP/candidate/native-build.tar.gz" \
+            addon/BUILD-RECORD.md addon/native/components.json addon/native/digests.json \
+            addon/native/linux-x86_64
+          sha256sum "$RUNNER_TEMP/candidate/"*
+      - name: Upload the tested candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64-candidate
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

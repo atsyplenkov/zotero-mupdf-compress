@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "source": "https://casper.mupdf.com/downloads/archive/mupdf-1.28.5-source.tar.gz",
+  "sourceSha256": "98a5c10cda20c3992cdf76ff6b2a1149c32bd79cc796d3f703230b1185b7e934",
+  "platforms": {
+    "linux-x86_64": {
+      "os": "Linux",
+      "abi": "x86_64-gcc3",
+      "artifact": "9fe67fee36f78755aa0774a3256701cc339f39afa8bd8731bf49db1871bd6f19",
+      "files": [
+        {
+          "name": "mutool",
+          "path": "linux-x86_64/mutool",
+          "sha256": "036fc2602cfdccad54bac496a70c4385d07dc93736633d9ab6a4c308a8f532cf",
+          "executable": true
+        },
+        {
+          "name": "session-lock",
+          "path": "linux-x86_64/session-lock",
+          "sha256": "94c573b4717829fad9f2597d350dd891616f10ed4e255d5a75b0b54d1684dcef",
+          "executable": true
+        }
+      ]
+    }
+  }
+}

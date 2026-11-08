@@ -27,8 +27,8 @@ cc -std=c11 -O2 -Wall -Wextra -Werror native/session-lock.c -o session-lock
 
 | File | Bytes | Mode | SHA-256 |
 | --- | ---: | --- | --- |
-| `native/mutool` | 43,964,072 | 0755 | `036fc2602cfdccad54bac496a70c4385d07dc93736633d9ab6a4c308a8f532cf` |
-| `native/session-lock` | 16,920 | 0755 | `94c573b4717829fad9f2597d350dd891616f10ed4e255d5a75b0b54d1684dcef` |
+| `native/linux-x86_64/mutool` | 43,964,072 | 0755 | `036fc2602cfdccad54bac496a70c4385d07dc93736633d9ab6a4c308a8f532cf` |
+| `native/linux-x86_64/session-lock` | 16,920 | 0755 | `94c573b4717829fad9f2597d350dd891616f10ed4e255d5a75b0b54d1684dcef` |
 
 `native/digests.json` holds the same digests. The extension verifies an
 extracted executable against that record before it runs it.

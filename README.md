@@ -34,15 +34,20 @@ the PDF; some files cannot be made smaller.
 ## Installation
 
 > [!IMPORTANT]
-> The current bundled engine is built for **Linux x86-64** and requires
-> **glibc 2.43**. It is not a portable Linux build, and this release does not
-> include Windows or macOS binaries.
+> This development candidate includes **Linux x86-64** components only and
+> targets **glibc 2.35**. Windows, macOS, Linux ARM64, and non-glibc systems are
+> not supported by this candidate. Stable publication is blocked until the
+> complete four-platform package is available.
 >
-> Tested with **Zotero 10.0.6**. The extension manifest allows Zotero 7–10.0.x,
-> but earlier versions have not been tested.
+> The manifest and update metadata allow **Zotero 10.x** only. Earlier
+> host-built versions were tested with Zotero 10.0.6; native candidate checks
+> do **not** constitute testing this build inside Zotero. See the
+> [native build record](addon/BUILD-RECORD.md) for measured requirements.
 
-1. Download `mu-pdf-compress.xpi` from the **Assets** section of the
-   [latest release](https://github.com/atsyplenkov/zotero-mupdf-compress/releases/latest).
+1. For this development candidate, download the artifact from a successful
+   [Linux candidate Actions run](https://github.com/atsyplenkov/zotero-mupdf-compress/actions/workflows/linux-candidate.yml)
+   and extract `mu-pdf-compress_<version>.xpi`. Existing published releases
+   have their own build records and may contain the earlier host-built engine.
 2. In Zotero, open **Tools → Plugins**.
 3. Click the gear button, choose **Install Plugin From File…**, and select the
    downloaded `.xpi`.
@@ -117,7 +122,31 @@ make test
 
 This runs linting, type checking, tests, the build, and distribution checks.
 
+### Linux development candidates
+
+The read-only `linux-candidate` Actions workflow builds MuPDF and the session-lock
+helper in a digest-pinned Ubuntu 22.04 container on an `ubuntu-24.04` runner.
+It checks both executables' ELF architecture, loader, runtime libraries, and
+GLIBC symbol requirements against the 2.35 target. It then builds one XPI and
+runs the real engine and ownership tests against verified files extracted from
+that same package in Ubuntu 22.04 and Ubuntu 24.04 containers.
+
+A successful run provides a test XPI, the checksum-verified MuPDF source archive,
+component hashes, build records, and test logs as an Actions artifact. These
+checks cover native execution and host-API adapters, not Zotero UI integration
+or every Linux distribution. Container package versions and compiler commands
+are recorded; the build is not claimed to be bit-for-bit reproducible.
+
+The source remains pinned to MuPDF 1.28.5 without patches for this development
+slice. [Issue #34](https://github.com/atsyplenkov/zotero-mupdf-compress/issues/34)
+tracks the agreed security patch. A final release must rebuild and retest that
+agreed source on every supported target; this candidate is not a security fix.
+
 ### Stable releases
+
+Stable publication currently refuses this Linux-only package before any release
+writes. The remaining platform work must supply all four native component sets
+and their required verification before publication can be enabled.
 
 The release workflow accepts only canonical stable tags such as `v0.1.6`, with
 no leading zeroes, prerelease suffix, or build metadata. The tag must match the
@@ -139,8 +168,8 @@ checked-out commit, or main-history checks.
 Eligibility is checked before publication writes, including on retries.
 Publication remains serialized. Once a version is public, its assets are not
 replaced: a retry validates and reuses those assets to repair the update feed.
-A successful eligibility check does not prove platform compatibility; the
-Linux-only limitations described under Installation still apply.
+A successful eligibility check does not prove platform compatibility or bypass
+the incomplete-platform publication guard.
 
 ## License
 

@@ -16,8 +16,7 @@ export default defineConfig({
     assets: [
       "addon/**/*.*",
       "addon/notices/**/*",
-      "addon/native/mutool",
-      "addon/native/session-lock",
+      "addon/native/**/*",
     ],
     hooks: {
       "build:copyAssets": async (ctx) => {
@@ -25,6 +24,12 @@ export default defineConfig({
         const source = join(target, "source");
         await mkdir(source, { recursive: true });
         await cp("src", join(source, "src"), { recursive: true });
+        await mkdir(join(source, "scripts"), { recursive: true });
+        for (const name of ["inspect-linux-native.py", "extract-linux-candidate.py", "run-linux-candidate-tests.sh"]) {
+          await cp(join("scripts", name), join(source, "scripts", name));
+        }
+        await mkdir(join(source, ".github", "workflows"), { recursive: true });
+        await cp(".github/workflows/linux-candidate.yml", join(source, ".github", "workflows", "linux-candidate.yml"));
         await mkdir(join(source, "typings"), { recursive: true });
         await cp("typings/global.d.ts", join(source, "typings", "global.d.ts"));
         for (const name of [
@@ -33,6 +38,9 @@ export default defineConfig({
           "package-lock.json",
           "tsconfig.json",
           "zotero-plugin.config.ts",
+          "Makefile",
+          "mise.toml",
+          "mise.lock",
         ]) {
           await cp(name, join(source, name));
         }

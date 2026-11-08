@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { checkNoSymlinks, fail, fileHash, join, readResourceBytes } from "./files";
+import { checkNoSymlinks, component, fail, fileHash, join, readResourceBytes } from "./files";
 
 export const CLEAN = [
   "clean", "-ggg", "-z", "-Z", "-f", "-i", "-m", "--structure=keep",
@@ -9,24 +9,66 @@ export const CLEAN = [
   "--recompress-images-when=smaller",
 ];
 
+function bytesHash(bytes: Uint8Array): string {
+  const hash = component("@mozilla.org/security/hash;1").createInstance(Components.interfaces.nsICryptoHash);
+  hash.init(hash.SHA256);
+  hash.update(bytes, bytes.length);
+  return Array.from(hash.finish(false), (byte: string) => byte.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+}
+
 export async function extractNative(root: string): Promise<Record<string, string>> {
-  const native = JSON.parse(new TextDecoder().decode(await readResourceBytes(root + "native/digests.json")));
+  const native = JSON.parse(new TextDecoder().decode(await readResourceBytes(root + "native/components.json")));
+  if (!native || native.schemaVersion !== 1) fail("native-digest-manifest");
+  let os: string | undefined;
+  let abi: string | undefined;
+  try {
+    os = Services.appinfo?.OS;
+    abi = Services.appinfo?.XPCOMABI;
+  } catch {
+    fail("native-unsupported");
+  }
+  if (os !== "Linux" || abi !== "x86_64-gcc3") fail("native-unsupported");
+  if (!native.platforms || typeof native.platforms !== "object" || Array.isArray(native.platforms)) {
+    fail("native-digest-manifest");
+  }
+  const matches = Object.entries(native.platforms as Record<string, {
+    os?: string; abi?: string; artifact: string; files: Array<{ name: string; path: string; sha256: string; executable: boolean }>;
+  }>).filter(([, candidate]) => candidate?.os === os && candidate?.abi === abi);
+  if (matches.length !== 1) fail("native-unsupported");
+  const [platformId, platform] = matches[0];
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(platformId)) fail("native-digest-manifest");
+  if (!Array.isArray(platform.files)) fail("native-digest-manifest");
+  const names = new Set<string>();
+  for (const file of platform.files) {
+    if (!file || typeof file.name !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(file.name) ||
+        file.path !== `${platformId}/${file.name}` || typeof file.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(file.sha256) || typeof file.executable !== "boolean" || names.has(file.name)) {
+      fail("native-digest-manifest");
+    }
+    names.add(file.name);
+  }
+  if (!["mutool", "session-lock"].every((name) =>
+    platform.files.some((file) => file.name === name && file.executable === true),
+  )) fail("native-digest-manifest");
+  const identity = bytesHash(new TextEncoder().encode(JSON.stringify(platform.files)));
+  if (identity !== platform.artifact) fail("native-digest-manifest");
   const profile = Zotero.getProfileDirectory().path;
-  const cache = join(profile, "mupdf-compress", native.mutool.slice(0, 16));
+  const cache = join(profile, "mupdf-compress", platformId, platform.artifact);
   checkNoSymlinks(cache, true);
   await IOUtils.makeDirectory(cache, { createAncestors: true, permissions: 0o700 });
   checkNoSymlinks(cache);
   const paths: Record<string, string> = {};
-  for (const name of ["mutool", "session-lock"]) {
-    if (!/^[a-f0-9]{64}$/.test(native[name])) fail("native-digest-manifest");
-    const path = join(cache, name);
-    if (!(await IOUtils.exists(path)) || fileHash(path) !== native[name]) {
+  for (const file of platform.files) {
+    const bytes = await readResourceBytes(root + "native/" + file.path);
+    if (bytesHash(bytes) !== file.sha256) fail("native-digest-mismatch");
+    const path = join(cache, file.name);
+    if (!(await IOUtils.exists(path)) || fileHash(path) !== file.sha256) {
       checkNoSymlinks(path, true);
-      await IOUtils.write(path, await readResourceBytes(root + "native/" + name), { mode: "overwrite" });
+      await IOUtils.write(path, bytes, { mode: "overwrite" });
     }
-    await IOUtils.setPermissions(path, 0o700);
-    if (fileHash(path) !== native[name]) fail("native-digest-mismatch");
-    paths[name] = path;
+    await IOUtils.setPermissions(path, file.executable ? 0o700 : 0o600);
+    if (fileHash(path) !== file.sha256) fail("native-digest-mismatch");
+    paths[file.name] = path;
   }
   return paths;
 }

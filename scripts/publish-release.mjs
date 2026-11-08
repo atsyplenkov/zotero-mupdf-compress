@@ -105,6 +105,11 @@ function downloadAssets(release) {
 }
 
 try {
+  const components = JSON.parse(readFileSync("addon/native/components.json", "utf8"));
+  const required = ["linux-x86_64", "windows-x86_64", "macos-x86_64", "macos-arm64"];
+  if (!required.every((platform) => components.platforms?.[platform])) {
+    throw new Error("Stable publication requires all four native platforms; this candidate is development-only");
+  }
   run(process.execPath, ["scripts/refuse-older-update.mjs", version, "--check-tag"]);
   let items = releases();
   checkHistory(items);

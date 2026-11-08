@@ -62,8 +62,9 @@ local slow = (fast) {
       "typings/i10n.d.ts",
       "zotero-plugin.config.ts",
       "scripts/check-distribution.py",
+      "scripts/check_distribution_test.py",
     )
-    check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py"
+    check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py && python3 -m unittest discover -s scripts -p '*_test.py'"
   }
   ["unit"] {
     glob = List("src/**/*.ts", "src/test-fixtures/**", "scripts/**/*.mjs", ".github/workflows/release.yml", "hk.pkl")

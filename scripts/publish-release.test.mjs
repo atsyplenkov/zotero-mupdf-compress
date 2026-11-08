@@ -106,6 +106,9 @@ function setup(t, overrides = {}) {
     source: "https://example.test/mupdf-source.tar.gz",
     sourceSha256: createHash("sha256").update(source).digest("hex"),
   }));
+  writeFileSync(join(directory, "addon/native/components.json"), JSON.stringify({
+    platforms: Object.fromEntries(["linux-x86_64", "windows-x86_64", "macos-x86_64", "macos-arm64"].map((name) => [name, {}])),
+  }));
   for (const command of ["gh", "npm", "curl", "python3"]) {
     writeFileSync(join(bin, command), `#!/usr/bin/env node\n(${fakeCommand.toString()})().catch((error) => { console.error(error); process.exit(1); });\n`, { mode: 0o755 });
   }
@@ -147,6 +150,18 @@ test("the release workflow uses the retry-safe publisher", () => {
   match(workflow, /queue: max/);
   const check = workflow.indexOf('node scripts/refuse-older-update.mjs "$version" --check-tag');
   ok(check >= 0 && check < workflow.indexOf("      - name: Refuse an older publish"));
+});
+
+test("a Linux-only candidate cannot reach stable publication", (t) => {
+  const fixture = setup(t);
+  writeFileSync(join(fixture.directory, "addon/native/components.json"), JSON.stringify({
+    platforms: { "linux-x86_64": {} },
+  }));
+  const before = fixture.read();
+  const result = fixture.run();
+  notEqual(result.status, 0, result.stderr);
+  match(result.stderr, /all four native platforms/);
+  deepEqual(fixture.read(), before);
 });
 
 test("an unmerged tagged commit fails before builds or publication commands", (t) => {

@@ -2,10 +2,10 @@
 
 import { equal, match, rejects } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { access, mkdtemp, rm, stat } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +26,9 @@ try {
 }
 const { CLEAN, documentInfo, validate } = engine;
 
-const mutool = fileURLToPath(new URL("../addon/native/mutool", import.meta.url));
+const nativeDirectory = resolve(process.env.MUPDF_NATIVE_DIR || fileURLToPath(new URL("../addon/native/linux-x86_64", import.meta.url)));
+const timeout = 60_000;
+const mutool = join(nativeDirectory, "mutool");
 const pdf = fileURLToPath(new URL("./test-fixtures/unicode-metadata.pdf", import.meta.url));
 const invalidSecondPage = fileURLToPath(new URL("./test-fixtures/invalid-second-page.pdf", import.meta.url));
 
@@ -47,7 +49,7 @@ const subprocess = {
     arguments: string[];
     environment: NodeJS.ProcessEnv;
   }) {
-    const result = spawnSync(command, args, { encoding: "utf8", env: { ...process.env, ...environment } });
+    const result = spawnSync(command, args, { encoding: "utf8", env: { ...process.env, ...environment }, timeout });
     if (result.error) throw result.error;
     return {
       stdin: { async close() {} },
@@ -59,7 +61,7 @@ const subprocess = {
 };
 
 function runMutool(args: string[]) {
-  const result = spawnSync(mutool, args, { encoding: "utf8" });
+  const result = spawnSync(mutool, args, { encoding: "utf8", timeout });
   if (result.error) throw result.error;
   equal(result.status, 0, result.stderr);
 }
@@ -107,7 +109,7 @@ test("password-protected and empty-user-password PDFs are rejected as encrypted"
     for (const [label, password] of [["password", "secret"], ["empty", ""]]) {
       const encrypted = join(directory, label + ".pdf");
       runMutool(["clean", "-E", "aes-256", "-O", "owner", "-U", password, pdf, encrypted]);
-      const probe = spawnSync(mutool, ["info", "-M", encrypted], { encoding: "utf8" });
+      const probe = spawnSync(mutool, ["info", "-M", encrypted], { encoding: "utf8", timeout });
       if (probe.error) throw probe.error;
       if (password) {
         equal(probe.status, 1);
@@ -128,6 +130,21 @@ test("validation accepts a compressed output after rendering the input and outpu
     await withNodeIOUtils(async () => {
       await validate(subprocess, mutool, pdf, output);
     });
+  });
+});
+
+test("compression and validation work with spaces and Unicode in input and output paths", async () => {
+  await withTempDirectory(async (directory) => {
+    const namedDirectory = join(directory, "papers café 文献");
+    await mkdir(namedDirectory);
+    const input = join(namedDirectory, "résumé 入力.pdf");
+    const output = join(namedDirectory, "résumé 出力.pdf");
+    await copyFile(pdf, input);
+    runMutool([...CLEAN, input, output]);
+    await withNodeIOUtils(async () => {
+      await validate(subprocess, mutool, input, output);
+    });
+    equal(await documentInfo(subprocess, mutool, output), 1);
   });
 });
 
