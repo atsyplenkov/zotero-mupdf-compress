@@ -50,13 +50,22 @@ XPI; `SOURCE.md` states that requirement.
 
 Zotero reads
 `https://github.com/atsyplenkov/zotero-mupdf-compress/releases/download/release/update.json`.
-Pushing a `v*` tag runs the release workflow. That workflow publishes
-`mu-pdf-compress.xpi` on the version tag and refreshes `update.json` on the
-stable `release` tag. The update manifest carries the same `strict_min_version`
-and `strict_max_version` as the XPI manifest. An installed copy can then update
+Pushing a stable `vMAJOR.MINOR.PATCH` tag runs the release workflow. The tag must
+match the version in `package.json` and point to the checked-out commit, including
+when the workflow is started manually. Prerelease versions are rejected. The
+workflow publishes `mu-pdf-compress.xpi` on the version tag and refreshes
+`update.json` on the stable `release` tag. It refuses to replace a feed that
+already offers a newer version. Only a missing feed (HTTP 404) permits a first
+publication; other download errors and malformed feeds stop publication.
+The update manifest carries the same `strict_min_version` and
+`strict_max_version` as the XPI manifest. An installed copy can then update
 inside Zotero. A fresh install still uses the XPI from the version release.
-The verified MuPDF source archive still has to be available from the same place
-as the XPI.
+The workflow also uploads the verified MuPDF source archive to the version
+release alongside the XPI.
+
+Copies installed with the old `example.invalid` update URL need one manual
+installation of an XPI containing the real update URL. Subsequent releases can
+then be discovered through Zotero's update check.
 
 ## Settings
 
@@ -85,7 +94,7 @@ setting, or recovery override is offered.
 ## Testing
 
 `make test` runs `mise run check`, the completion gate also used by CI. It
-includes lint, type checking, `node --test src/*.test.ts`, the build, and the
+includes lint, type checking, `node --test src/*.test.ts scripts/*.test.mjs`, the build, and the
 distribution checks.
 
 ```sh
