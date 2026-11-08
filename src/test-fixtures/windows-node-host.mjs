@@ -4,6 +4,7 @@
 // replaces only Gecko's OS binding through the test module-resolution hook; it
 // does not exercise Gecko js-ctypes or claim Zotero integration coverage.
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { win32 } from "node:path";
 
 const helper = process.env.MUPDF_WINDOWS_TEST_HOST;
@@ -52,5 +53,6 @@ export async function copyWindowsPrivateFile() {
 }
 
 export function replaceWindowsFile(output, original) {
-  run("replacement", "--test-replace-file", original, output);
+  const staged = win32.join(win32.dirname(original), `.mupdf-compress-${randomUUID()}.pdf`);
+  run("replacement", "--test-replace-file", original, output, staged);
 }

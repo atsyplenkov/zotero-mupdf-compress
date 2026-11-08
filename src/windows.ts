@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { fail } from "./files.ts";
+import { fail, uuid } from "./files.ts";
 
 // All Windows operations here fail closed if Gecko's js-ctypes is unavailable.
 // A drive path is required; device namespaces, UNC paths, streams, and Win32
@@ -278,15 +278,28 @@ export async function copyWindowsPrivateFile(source: string, destination: string
   }
 }
 
-// ReplaceFileW keeps the replaced file's security metadata. Never request
-// REPLACEFILE_IGNORE_MERGE_ERRORS: an ACL merge failure must stop replacement.
+// Merging from a private parent can replace the attachment's inherited ACEs.
+// Move the private file beside the attachment without overwriting a collision,
+// then merge security metadata without ignoring ACL errors.
 export function replaceWindowsFile(output: string, original: string): void {
   checkWindowsPath(original, false);
   checkWindowsPath(output, false);
+  const staged = original.slice(0, original.lastIndexOf("\\") + 1) + `.mupdf-compress-${uuid()}.pdf`;
+  checkWindowsPath(staged, true);
   native((ctypes, kernel) => {
+    const move = kernel.declare("MoveFileExW", ctypes.winapi_abi, ctypes.int32_t,
+      ctypes.jschar.ptr, ctypes.jschar.ptr, ctypes.uint32_t);
+    const remove = kernel.declare("DeleteFileW", ctypes.winapi_abi, ctypes.int32_t, ctypes.jschar.ptr);
     const replace = kernel.declare("ReplaceFileW", ctypes.winapi_abi, ctypes.int32_t,
       ctypes.jschar.ptr, ctypes.jschar.ptr, ctypes.jschar.ptr, ctypes.uint32_t,
       ctypes.voidptr_t, ctypes.voidptr_t);
-    if (!replace(original, output, null, 0, null, null)) fail("replacement");
+    if (!move(output, staged, 0)) fail("replacement");
+    let installed = false;
+    try {
+      if (!replace(original, staged, null, 0, null, null)) fail("replacement");
+      installed = true;
+    } finally {
+      if (!installed) remove(staged);
+    }
   });
 }

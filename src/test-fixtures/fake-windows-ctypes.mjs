@@ -2,7 +2,7 @@
 
 // Model the CData pointer operations used by the Gecko binding. This is not a
 // substitute for executing Gecko's actual js-ctypes implementation on Windows.
-export function windowsCtypes() {
+export function windowsCtypes({ replaceFails = false } = {}) {
   const sid = "S-1-5-21-100-200-300-1001";
   const entries = new Map([
     ["C:\\", { attributes: 0x10 }],
@@ -11,6 +11,8 @@ export function windowsCtypes() {
   ]);
   const created = [];
   const replacements = [];
+  const moves = [];
+  const deleted = [];
   let lastError = 0;
   const pointer = (value = null) => ({
     value,
@@ -106,11 +108,30 @@ export function windowsCtypes() {
               output.value = entry.sddl;
               return 0;
             },
+            MoveFileExW(source, destination, flags) {
+              moves.push({ source, destination, flags });
+              if (!entries.has(source) || entries.has(destination) || flags !== 0) return 0;
+              entries.set(destination, entries.get(source));
+              entries.delete(source);
+              return 1;
+            },
+            DeleteFileW(path) {
+              deleted.push(path);
+              return Number(entries.delete(path));
+            },
             ReplaceFileW(original, replacement, backup, flags) {
               replacements.push({ original, replacement, backup, flags });
+              if (replaceFails) return 0;
               const previous = entries.get(original);
               const next = entries.get(replacement);
-              entries.set(original, { ...next, sddl: previous.sddl });
+              let sddl = previous.sddl;
+              const parent = (path) => path.slice(0, path.lastIndexOf("\\"));
+              // The native regression loses inherited ACEs when merging in the private parent.
+              if (parent(original) !== parent(replacement) && !sddl.includes("D:P")) {
+                const inherited = /\([^;]+;[^;]*ID[^;]*;[^)]*\)/g;
+                sddl = sddl.replace(inherited, "") + (next.sddl.match(inherited) || []).join("");
+              }
+              entries.set(original, { ...next, sddl });
               entries.delete(replacement);
               return 1;
             },
@@ -128,5 +149,5 @@ export function windowsCtypes() {
       };
     },
   };
-  return { ctypes, entries, created, replacements, sid };
+  return { ctypes, entries, created, replacements, moves, deleted, sid };
 }

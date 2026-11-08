@@ -114,25 +114,46 @@ test("Windows private backup creation applies its ACL before document bytes are 
   }
 });
 
-test("Windows replacement requires security metadata merging without ignore-error flags", async () => {
-  const original = Object.getOwnPropertyDescriptor(globalThis, "ChromeUtils");
-  const host = windowsCtypes();
-  const source = "C:\\Users\\Zoë\\attachment.pdf";
-  const output = "C:\\Users\\Zoë\\replacement.pdf";
-  host.entries.set(source, { attributes: 0, sddl: "inherited-original" });
-  host.entries.set(output, { attributes: 0, sddl: "private-output" });
-  Object.defineProperty(globalThis, "ChromeUtils", {
-    configurable: true, value: { importESModule: () => ({ ctypes: host.ctypes }) },
+for (const outcome of ["installed", "collision", "replacement-failed"]) {
+  test(`Windows replacement stages private output safely: ${outcome}`, async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "ChromeUtils");
+    const services = Object.getOwnPropertyDescriptor(globalThis, "Services");
+    const host = windowsCtypes({ replaceFails: outcome === "replacement-failed" });
+    const source = "C:\\Users\\Zoë\\attachment.pdf";
+    const output = "C:\\Users\\Zoë\\private\\replacement.pdf";
+    const staged = "C:\\Users\\Zoë\\.mupdf-compress-staged.pdf";
+    const inherited = `O:${host.sid}D:AI(A;ID;FR;;;BU)(A;ID;FA;;;${host.sid})`;
+    host.entries.set("C:\\Users\\Zoë\\private", { attributes: 0x10 });
+    host.entries.set(source, { attributes: 0, sddl: inherited, bytes: Buffer.from("original") });
+    host.entries.set(output, { attributes: 0, sddl: `O:${host.sid}D:(A;ID;FA;;;${host.sid})`, bytes: Buffer.from("replacement") });
+    if (outcome === "collision") {
+      host.entries.set(staged, { attributes: 0, bytes: Buffer.from("unrelated") });
+    }
+    Object.defineProperty(globalThis, "ChromeUtils", {
+      configurable: true, value: { importESModule: () => ({ ctypes: host.ctypes }) },
+    });
+    Object.defineProperty(globalThis, "Services", {
+      configurable: true, value: { uuid: { generateUUID: () => "{staged}" } },
+    });
+    try {
+      if (outcome === "installed") await replaceFile(output, source);
+      else await rejects(replaceFile(output, source), { safeCode: "replacement" });
+      equal(host.entries.get(source)?.sddl, inherited);
+      equal(host.entries.get(source)?.bytes.toString(), outcome === "installed" ? "replacement" : "original");
+      deepEqual(host.moves, [{ source: output, destination: staged, flags: 0 }]);
+      deepEqual(host.replacements, outcome === "collision" ? [] : [{ original: source, replacement: staged, backup: null, flags: 0 }]);
+      equal(host.entries.has(output), outcome === "collision");
+      equal(host.entries.has(staged), outcome === "collision");
+      if (outcome === "collision") equal(host.entries.get(staged)?.bytes.toString(), "unrelated");
+      deepEqual(host.deleted, outcome === "replacement-failed" ? [staged] : []);
+    } finally {
+      if (original) Object.defineProperty(globalThis, "ChromeUtils", original);
+      else Reflect.deleteProperty(globalThis, "ChromeUtils");
+      if (services) Object.defineProperty(globalThis, "Services", services);
+      else Reflect.deleteProperty(globalThis, "Services");
+    }
   });
-  try {
-    await replaceFile(output, source);
-    deepEqual(host.replacements, [{ original: source, replacement: output, backup: null, flags: 0 }]);
-    equal(host.entries.get(source)?.sddl, "inherited-original");
-  } finally {
-    if (original) Object.defineProperty(globalThis, "ChromeUtils", original);
-    else Reflect.deleteProperty(globalThis, "ChromeUtils");
-  }
-});
+}
 
 for (const scenario of [
   { name: "an inherited attachment ACL from a different parent", sibling: false, acl: "inherited" },
@@ -184,16 +205,61 @@ for (const scenario of [
         const access = (sddl: string) => sddl.replace(/D:P?/, "D:").replaceAll(";ID;", ";;");
         equal(access(descriptor(output)), access(privateAcl), "Moving the output must keep its bytes private");
       }
-      const result = spawnSync(helper, ["--test-replace-file", attachment, output], { encoding: "utf8" });
+      const staged = nodeJoin(folder, "staged.pdf");
+      const result = spawnSync(helper, ["--test-replace-file", attachment, output, staged], { encoding: "utf8" });
       ifError(result.error);
       equal(result.status, 0, result.stderr);
       equal(await readFile(attachment, "utf8"), "replacement");
       equal(descriptor(attachment), before);
+      await rejects(stat(staged), { code: "ENOENT" });
+      await rejects(stat(output), { code: "ENOENT" });
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
   });
+}
 
+for (const failure of ["staging collision", "read-only attachment"]) {
+  test(`Windows replacement leaves the attachment and backup intact after a ${failure}`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    const folder = await mkdtemp(nodeJoin(tmpdir(), "mupdf replace failure-"));
+    const attachment = nodeJoin(folder, "attachment.pdf");
+    const staged = nodeJoin(folder, "staged.pdf");
+    const helper = process.env.MUPDF_WINDOWS_TEST_HOST;
+    try {
+      if (!helper) throw new Error("MUPDF_WINDOWS_TEST_HOST is required");
+      const privateDirectory = nodeJoin(folder, "private");
+      const { ensureWindowsPrivateDirectory } = await import("./test-fixtures/windows-node-host.mjs");
+      ensureWindowsPrivateDirectory(privateDirectory, { ignoreExisting: false });
+      const backup = nodeJoin(privateDirectory, "backup.pdf");
+      const output = nodeJoin(privateDirectory, "replacement.pdf");
+      await writeFile(attachment, "original");
+      await writeFile(backup, "original");
+      await writeFile(output, "replacement");
+      if (failure === "staging collision") await writeFile(staged, "unrelated");
+      else {
+        const locked = spawnSync("attrib.exe", ["+R", attachment], { encoding: "utf8" });
+        ifError(locked.error);
+        equal(locked.status, 0, locked.stderr);
+      }
+      const result = spawnSync(helper, ["--test-replace-file", attachment, output, staged], { encoding: "utf8" });
+      ifError(result.error);
+      notEqual(result.status, 0);
+      equal(await readFile(attachment, "utf8"), "original");
+      equal(await readFile(backup, "utf8"), "original");
+      if (failure === "staging collision") {
+        equal(await readFile(staged, "utf8"), "unrelated");
+        equal(await readFile(output, "utf8"), "replacement");
+      } else {
+        await rejects(stat(staged), { code: "ENOENT" });
+        await rejects(stat(output), { code: "ENOENT" });
+      }
+    } finally {
+      if (failure === "read-only attachment") spawnSync("attrib.exe", ["-R", attachment]);
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
 }
 
 test("Windows path checks reject a hard-linked regular file", () => {

@@ -235,9 +235,14 @@ int wmain(int argc, wchar_t **argv)
     if (argc == 4 && !wcscmp(argv[1], L"--test-move-file"))
         return test_check_path(argv[2], 0) && test_check_path(argv[3], 1) &&
                MoveFileExW(argv[2], argv[3], 0) ? 0 : fail();
-    if (argc == 4 && !wcscmp(argv[1], L"--test-replace-file"))
-        return test_check_path(argv[2], 0) && test_check_path(argv[3], 0) &&
-               ReplaceFileW(argv[2], argv[3], NULL, 0, NULL, NULL) ? 0 : fail();
+    if (argc == 5 && !wcscmp(argv[1], L"--test-replace-file")) {
+        BOOL installed;
+        if (!test_check_path(argv[2], 0) || !test_check_path(argv[3], 0) ||
+            !test_check_path(argv[4], 1) || !MoveFileExW(argv[3], argv[4], 0)) return fail();
+        installed = ReplaceFileW(argv[2], argv[4], NULL, 0, NULL, NULL);
+        if (!installed) DeleteFileW(argv[4]);
+        return installed ? 0 : fail();
+    }
     if (argc == 3 && !wcscmp(argv[1], L"--test-security-descriptor"))
         return test_security_descriptor(argv[2]) ? 0 : fail();
 #endif
