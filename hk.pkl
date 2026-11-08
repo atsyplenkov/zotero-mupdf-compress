@@ -4,6 +4,7 @@ import "package://github.com/jdx/hk/releases/download/v2.9.0/hk@2.9.0#/Builtins.
 local productJs = List(
   "src/**/*.ts",
   "addon/**/*.js",
+  "scripts/**/*.mjs",
   "typings/global.d.ts",
   "zotero-plugin.config.ts",
 )
@@ -65,8 +66,8 @@ local slow = (fast) {
     check = "npm run build --silent && git diff --exit-code -- typings/prefs.d.ts typings/i10n.d.ts && scripts/check-distribution.py"
   }
   ["unit"] {
-    glob = List("src/**/*.ts", "src/test-fixtures/**", "hk.pkl")
-    check = "node --test src/*.test.ts"
+    glob = List("src/**/*.ts", "src/test-fixtures/**", "scripts/**/*.mjs", ".github/workflows/release.yml", "hk.pkl")
+    check = "node --test src/*.test.ts scripts/*.test.mjs"
   }
 }
 
