@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { drain } from "./engine";
-import { checkNoSymlinks, fail, join, localFile, log, uuid } from "./files";
+import { checkNoSymlinks, ensurePrivateDirectory, fail, join, localFile, log, uuid } from "./files";
 
 const PREF = "extensions.mupdf-compress.temporaryFolder";
 const OWNER_MARKER = "MuPDF Compress session v1\n";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export interface Lock {
+  directory: string;
   proc: { pid?: number; stdin: { close(): Promise<void> }; wait(): Promise<unknown>; kill(): void };
   alive: boolean;
 }
@@ -18,7 +19,14 @@ export async function acquireLock(
   directory: string,
 ): Promise<Lock | null> {
   checkNoSymlinks(directory);
-  const lockPath = join(directory, "session.lock");
+  const sessionDirectory = localFile(directory);
+  const windows = Services.appinfo?.OS === "WINNT";
+  if (windows && (!sessionDirectory.parent || !UUID.test(sessionDirectory.leafName))) return null;
+  // Windows cannot remove a directory while its lock file is open. Keep the
+  // lock identity in the parent, and leave it there after the session ends.
+  const lockPath = windows
+    ? join(sessionDirectory.parent!.path, `${sessionDirectory.leafName}.lock`)
+    : join(directory, "session.lock");
   checkNoSymlinks(lockPath, true);
   let proc: any;
   try {
@@ -30,7 +38,7 @@ export async function acquireLock(
     // Discard helper diagnostics without forwarding document data.
     drain(proc.stderr).catch(() => {});
     if ((await proc.stdout.readString(7)) !== "LOCKED\n") fail("lock-unavailable");
-    const held: Lock = { proc, alive: true };
+    const held: Lock = { directory, proc, alive: true };
     proc.wait().then(() => {
       held.alive = false;
     });
@@ -51,9 +59,12 @@ export async function releaseLock(lock: Lock | null): Promise<void> {
     await lock.proc.stdin.close();
     await lock.proc.wait();
   } catch {
+    // A failed close does not mean the OS has released ownership.
+    lock.alive = false;
     try {
       lock.proc.kill();
     } catch {}
+    await lock.proc.wait();
   }
   lock.alive = false;
 }
@@ -61,7 +72,12 @@ export async function releaseLock(lock: Lock | null): Promise<void> {
 async function recognized(directory: string): Promise<boolean> {
   try {
     checkNoSymlinks(directory);
-    if (!localFile(directory).isDirectory() || !UUID.test(localFile(directory).leafName)) return false;
+    const sessionDirectory = localFile(directory);
+    if (!sessionDirectory.isDirectory() || !UUID.test(sessionDirectory.leafName)) return false;
+    if (Services.appinfo?.OS === "WINNT") {
+      if (!sessionDirectory.parent) return false;
+      await ensurePrivateDirectory(directory, { privateRoot: sessionDirectory.parent.path, verifyExistingOnly: true });
+    }
     const marker = join(directory, "owner.txt");
     checkNoSymlinks(marker);
     const stat = await IOUtils.stat(marker);
@@ -73,7 +89,7 @@ async function recognized(directory: string): Promise<boolean> {
 }
 
 export async function cleanSession(directory: string, lock: Lock): Promise<boolean> {
-  if (!lock.alive || !(await recognized(directory))) return false;
+  if (!lock.alive || lock.directory !== directory || !(await recognized(directory))) return false;
   const paths = await IOUtils.getChildren(directory);
   for (const path of paths) {
     checkNoSymlinks(path);
@@ -95,7 +111,7 @@ export async function cleanSession(directory: string, lock: Lock): Promise<boole
   const marker = join(directory, "owner.txt");
   await IOUtils.remove(marker);
   try {
-    await IOUtils.remove(join(directory, "session.lock"));
+    if (Services.appinfo?.OS !== "WINNT") await IOUtils.remove(join(directory, "session.lock"));
     await IOUtils.remove(directory);
   } catch (error) {
     if (lock.alive && (await IOUtils.exists(directory))) {
@@ -143,7 +159,7 @@ export async function initSession(
   if (!folder.exists() || !folder.isDirectory() || !folder.isWritable()) fail("temporary-folder", selected);
   const root = join(selected, "mupdf-compress-v1");
   checkNoSymlinks(root, true);
-  await IOUtils.makeDirectory(root, { permissions: 0o700, ignoreExisting: true });
+  await ensurePrivateDirectory(root, { ignoreExisting: true });
   checkNoSymlinks(root);
   if (!localFile(root).isDirectory()) fail("temporary-folder", selected);
   for (const directory of await IOUtils.getChildren(root)) {
@@ -159,7 +175,7 @@ export async function initSession(
     }
   }
   const sessionDir = join(root, uuid());
-  await IOUtils.makeDirectory(sessionDir, { permissions: 0o700, ignoreExisting: false });
+  await ensurePrivateDirectory(sessionDir, { privateRoot: root, ignoreExisting: false });
   const lock = await acquireLock(subprocess, lockHelperPath, sessionDir);
   if (!lock) {
     try {
@@ -172,7 +188,7 @@ export async function initSession(
   } catch (error) {
     await releaseLock(lock);
     try {
-      await IOUtils.remove(join(sessionDir, "session.lock"));
+      if (Services.appinfo?.OS !== "WINNT") await IOUtils.remove(join(sessionDir, "session.lock"));
       await IOUtils.remove(sessionDir);
     } catch {}
     throw error;

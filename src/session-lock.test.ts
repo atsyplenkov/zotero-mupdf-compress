@@ -8,9 +8,12 @@ import { basename, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const nativeDirectory = resolve(process.env.MUPDF_NATIVE_DIR || fileURLToPath(new URL("../addon/native/linux-x86_64", import.meta.url)));
-const helper = join(nativeDirectory, "session-lock");
-const timeout = 5000;
+const windows = process.platform === "win32";
+const nativeDirectory = resolve(process.env.MUPDF_NATIVE_DIR || fileURLToPath(new URL(
+  `../addon/native/${windows ? "windows-x86_64" : "linux-x86_64"}`, import.meta.url,
+)));
+const helper = join(nativeDirectory, windows ? "session-lock.exe" : "session-lock");
+const timeout = windows ? 30000 : 5000;
 
 function startOwner(path: string) {
   const child = spawn(helper, [path], { stdio: ["pipe", "pipe", "pipe"] });
@@ -74,11 +77,17 @@ async function withOwner(path: string, run: (owner: ReturnType<typeof startOwner
 }
 
 async function withDirectory(run: (directory: string) => Promise<void>) {
-  const directory = await mkdtemp(join(tmpdir(), "mupdf-lock-test-"));
+  const temporary = await mkdtemp(join(tmpdir(), "mupdf lock café 文献-"));
   try {
+    let directory = temporary;
+    if (windows) {
+      directory = join(temporary, "private");
+      const { ensureWindowsPrivateDirectory } = await import("./test-fixtures/windows-node-host.mjs");
+      ensureWindowsPrivateDirectory(directory, { ignoreExisting: false });
+    }
     await run(directory);
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
   }
 }
 
@@ -109,17 +118,20 @@ test("symbolic links at the lock file or an ancestor are refused", async () => {
     const realFile = join(realDirectory, "target");
     const lockLink = join(directory, "lock-link");
     const directoryLink = join(directory, "directory-link");
-    await mkdir(realDirectory);
+    if (windows) {
+      const { ensureWindowsPrivateDirectory } = await import("./test-fixtures/windows-node-host.mjs");
+      ensureWindowsPrivateDirectory(realDirectory, { ignoreExisting: false });
+    } else await mkdir(realDirectory);
     await writeFile(realFile, "untouched", { mode: 0o600 });
-    await symlink(realFile, lockLink);
-    await symlink(realDirectory, directoryLink);
-    expectRefusal(lockLink);
+    if (!windows) await symlink(realFile, lockLink);
+    await symlink(realDirectory, directoryLink, windows ? "junction" : "dir");
+    if (!windows) expectRefusal(lockLink);
     expectRefusal(join(directoryLink, "ancestor.lock"));
     equal(await readFile(realFile, "utf8"), "untouched");
   });
 });
 
-test("hard-linked, wrong-mode, and non-regular lock files are refused", async () => {
+test("hard-linked, wrong-mode, and non-regular lock files are refused", { skip: windows }, async () => {
   await withDirectory(async (directory) => {
     const realFile = join(directory, "target");
     const hardLink = join(directory, "hard-link");
@@ -135,6 +147,20 @@ test("hard-linked, wrong-mode, and non-regular lock files are refused", async ()
     for (const path of [hardLink, wrongMode, fifo, directory]) expectRefusal(path);
     equal(await readFile(realFile, "utf8"), "untouched");
     equal(await readFile(wrongMode, "utf8"), "untouched");
+  });
+});
+
+test("Windows refuses hard-linked locks and an inherited directory ACL", { skip: !windows }, async () => {
+  await withDirectory(async (directory) => {
+    const target = join(directory, "target");
+    const hardLink = join(directory, "hard-link");
+    await writeFile(target, "untouched");
+    await link(target, hardLink);
+    expectRefusal(hardLink);
+    equal(await readFile(target, "utf8"), "untouched");
+    const inherited = join(directory, "inherited");
+    await mkdir(inherited);
+    expectRefusal(join(inherited, "session.lock"));
   });
 });
 
@@ -154,7 +180,8 @@ test("a forcibly terminated owner's lock is released by the operating system", a
     const path = join(directory, "session.lock");
     await withOwner(path, async (owner) => {
       owner.child.kill("SIGKILL");
-      equal((await waitForExit(owner)).signal, "SIGKILL");
+      const exit = await waitForExit(owner);
+      if (!windows) equal(exit.signal, "SIGKILL");
       const successor = runHelper(path);
       equal(successor.status, 0);
       equal(successor.stdout, "LOCKED\n");

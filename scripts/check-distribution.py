@@ -22,12 +22,18 @@ REQUIRED = [
     "native/build-engine.sh",
     "native/linux.Dockerfile",
     "native/session-lock.c",
+    "native/build-windows.ps1",
+    "native/session-lock-windows.c",
     "native/linux-x86_64/build-record.json",
     "native/linux-x86_64/build-trace.txt",
     "source/scripts/inspect-linux-native.py",
     "source/scripts/extract-linux-candidate.py",
     "source/scripts/run-linux-candidate-tests.sh",
+    "source/scripts/configure-windows-native.py",
+    "source/scripts/inspect-windows-native.py",
+    "source/scripts/record-windows-native.py",
     "source/.github/workflows/linux-candidate.yml",
+    "source/.github/workflows/windows-candidate.yml",
     "native/digests.json",
     "native/components.json",
     "native/linux-x86_64/mutool",
@@ -73,7 +79,11 @@ SOURCE_FILES = [
     "scripts/inspect-linux-native.py",
     "scripts/extract-linux-candidate.py",
     "scripts/run-linux-candidate-tests.sh",
+    "scripts/configure-windows-native.py",
+    "scripts/inspect-windows-native.py",
+    "scripts/record-windows-native.py",
     ".github/workflows/linux-candidate.yml",
+    ".github/workflows/windows-candidate.yml",
 ]
 AGPL = ("GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3")
 
@@ -177,11 +187,21 @@ def main() -> int:
             require(platform.get("artifact") == identity, f"{platform_id} artifact identity differs from its files")
             if platform_id == "linux-x86_64":
                 require(platform.get("os") == "Linux" and platform.get("abi") == "x86_64-gcc3", "incorrect Linux runtime selection")
+            if platform_id == "windows-x86_64":
+                require(platform.get("os") == "WINNT" and platform.get("abi") == "x86_64-msvc", "incorrect Windows runtime selection")
+            required_files = {"mutool.exe", "session-lock.exe"} if platform_id == "windows-x86_64" else {"mutool", "session-lock"}
             seen = set()
+            normalized_seen = set()
             for component in files:
                 name = component.get("name", "")
                 safe_name = bool(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name))
-                require(safe_name and name not in seen, f"{platform_id} has an unsafe or duplicate component name")
+                if platform_id == "windows-x86_64":
+                    safe_name = safe_name and not name.endswith(".") and not re.match(
+                        r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", name, re.I,
+                    )
+                normalized = name.lower() if platform_id == "windows-x86_64" else name
+                require(safe_name and normalized not in normalized_seen, f"{platform_id} has an unsafe or duplicate component name")
+                normalized_seen.add(normalized)
                 seen.add(name)
                 path = component.get("path", "")
                 require(path == f"{platform_id}/{name}", f"{platform_id} has an unsafe component path")
@@ -192,10 +212,11 @@ def main() -> int:
                 require(bool(SHA256.fullmatch(digest)), f"{entry} has an invalid digest")
                 if entry in names:
                     require(hashlib.sha256(read(entry)).hexdigest() == digest, f"component digest mismatch: {entry}")
-                if platform_id == "linux-x86_64" and name in ("mutool", "session-lock"):
+                if name in required_files:
                     require(component.get("executable") is True, f"{name} must be executable")
-                    require(digest == digests.get(name), f"{name} digest records disagree")
-            require({"mutool", "session-lock"} <= seen, f"{platform_id} is missing required executables")
+                    if platform_id == "linux-x86_64":
+                        require(digest == digests.get(name), f"{name} digest records disagree")
+            require(required_files <= seen, f"{platform_id} is missing required executables")
 
         require(digests.get("source") == MUPDF_SOURCE, "digests.json source URL differs from the pin")
         require(digests.get("sourceSha256") == MUPDF_SHA256, "digests.json source checksum differs from the pin")
@@ -234,6 +255,40 @@ def main() -> int:
             needed = set(item.get("needed", []))
             require("libc.so.6" in needed and needed <= {"libc.so.6", "libm.so.6"}, f"{name} has unexpected runtime libraries")
             require(f"GLIBC_{version}" in record, f"BUILD-RECORD.md is missing measured {name} requirements")
+
+        if "windows-x86_64" in platforms:
+            windows_record = "native/windows-x86_64/build-record.json"
+            windows_trace = "native/windows-x86_64/build-trace.txt"
+            require(windows_record in names, "missing Windows build record")
+            require(windows_trace in names, "missing Windows build trace")
+            if windows_record in names:
+                win_build = json.loads(read(windows_record))
+                require(win_build.get("schemaVersion") == 1 and win_build.get("platform") == "windows-x86_64", "invalid Windows build record")
+                require(bool(re.fullmatch(r"[a-f0-9]{40}", win_build.get("sourceRevision", ""))), "Windows build record has no source revision")
+                require(win_build.get("source") == {"url": MUPDF_SOURCE, "sha256": MUPDF_SHA256}, "Windows build record source differs from the pin")
+                require(win_build.get("helperSourceSha256") == hashlib.sha256(read("native/session-lock-windows.c")).hexdigest(), "Windows helper source mismatch")
+                for path, entry in {
+                    "addon/native/build-windows.ps1": "native/build-windows.ps1",
+                    "scripts/configure-windows-native.py": "source/scripts/configure-windows-native.py",
+                    "scripts/inspect-windows-native.py": "source/scripts/inspect-windows-native.py",
+                    "scripts/record-windows-native.py": "source/scripts/record-windows-native.py",
+                }.items():
+                    require(win_build.get("buildInputs", {}).get(path) == hashlib.sha256(read(entry)).hexdigest(), f"Windows build recipe mismatch: {path}")
+                    require(read(entry) == (REPO / path).read_bytes(), f"packaged Windows build recipe differs: {path}")
+                require(win_build.get("target") == "Windows 10 x64", "invalid Windows target")
+                require(win_build.get("runtime") == "MSVC static CRT (/MT)", "Windows build does not select static CRT")
+                require(bool(win_build.get("configuration")) and bool(win_build.get("commands")), "Windows build record is incomplete")
+                require(all(win_build.get("toolchain", {}).get(key) for key in
+                            ("runner", "runner_version", "os_version", "msbuild", "msvc", "sdk")), "Windows toolchain evidence is incomplete")
+                measurements = {item["name"]: item for item in win_build.get("files", [])}
+                require(set(measurements) == {"mutool.exe", "session-lock.exe"}, "Windows build measurements are incomplete")
+                win_files = {item["name"]: item for item in platforms["windows-x86_64"].get("files", [])}
+                for name, item in measurements.items():
+                    require(item.get("sha256") == win_files.get(name, {}).get("sha256"), f"Windows build record digest mismatch: {name}")
+                    require(item.get("machine") == "AMD64", f"Windows build record has wrong architecture: {name}")
+                    require(item.get("delayImports") == [], f"Windows build record has delay imports: {name}")
+                    require(isinstance(item.get("needed"), list), f"Windows build record lacks imports: {name}")
+                    require(item.get("sha256", "") in record, f"BUILD-RECORD.md is missing Windows {name} digest")
 
         for name in SOURCE_FILES:
             require(

@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+import { checkWindowsPath, copyWindowsPrivateFile, ensureWindowsPrivateDirectory, replaceWindowsFile } from "./windows.ts";
+
 export function fail(code: string, checkedPath?: string): never {
   const error = new Error(code) as Error & { safeCode?: string; checkedPath?: string };
   error.safeCode = code;
@@ -22,6 +24,9 @@ export function localFile(path: string): nsIFile {
 }
 
 export function join(...parts: string[]): string {
+  if (/^[a-zA-Z]:[\\/]/.test(parts[0] || "")) {
+    return parts.join("\\").replace(/[\\/]+/g, "\\");
+  }
   return parts.join("/").replace(/\/+/g, "/");
 }
 
@@ -29,8 +34,16 @@ export function log(stage: string, code: string): void {
   Zotero.debug(`[MuPDF Compress] ${stage}: ${code}`);
 }
 
+function windowsFileSystem(path: string): boolean {
+  return (typeof Zotero !== "undefined" && Zotero.isWin) || /^[a-zA-Z]:/.test(path);
+}
+
 export function checkNoSymlinks(path: string, allowMissing = false): void {
-  if (typeof path !== "string" || !path.startsWith("/") || path.split("/").includes("..")) {
+  if (typeof path === "string" && windowsFileSystem(path)) {
+    checkWindowsPath(path, allowMissing);
+    return;
+  }
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || path.split("/").includes("..")) {
     fail("unsafe-path");
   }
   let current: nsIFile | null = localFile(path);
@@ -49,6 +62,44 @@ export function checkNoSymlinks(path: string, allowMissing = false): void {
     if (!allowMissing && !current.exists()) fail("missing-path");
     current = current.parent;
   }
+}
+
+export async function ensurePrivateDirectory(
+  path: string,
+  options: { privateRoot?: string; ignoreExisting?: boolean; verifyExistingOnly?: boolean } = {},
+): Promise<void> {
+  if (windowsFileSystem(path)) {
+    ensureWindowsPrivateDirectory(path, options);
+    return;
+  }
+  if (options.verifyExistingOnly) {
+    checkNoSymlinks(path);
+    if (!localFile(path).isDirectory()) fail("unsafe-path");
+    return;
+  }
+  await IOUtils.makeDirectory(path, {
+    permissions: 0o700,
+    createAncestors: Boolean(options.privateRoot && options.privateRoot !== path),
+    ignoreExisting: options.ignoreExisting !== false,
+  });
+}
+
+export async function copyPrivateFile(source: string, destination: string): Promise<void> {
+  if (windowsFileSystem(destination)) {
+    await copyWindowsPrivateFile(source, destination);
+    return;
+  }
+  await IOUtils.copy(source, destination, { noOverwrite: true });
+  await IOUtils.setPermissions(destination, 0o600);
+}
+
+export async function replaceFile(output: string, original: string): Promise<void> {
+  if (windowsFileSystem(original)) {
+    replaceWindowsFile(output, original);
+    return;
+  }
+  await IOUtils.setPermissions(output, localFile(original).permissions & 0o777);
+  await IOUtils.move(output, original);
 }
 
 export function fileHash(path: string): string {

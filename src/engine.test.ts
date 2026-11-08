@@ -26,9 +26,10 @@ try {
 }
 const { CLEAN, documentInfo, validate } = engine;
 
-const nativeDirectory = resolve(process.env.MUPDF_NATIVE_DIR || fileURLToPath(new URL("../addon/native/linux-x86_64", import.meta.url)));
+const windows = process.platform === "win32";
+const nativeDirectory = resolve(process.env.MUPDF_NATIVE_DIR || fileURLToPath(new URL(`../addon/native/${windows ? "windows-x86_64" : "linux-x86_64"}`, import.meta.url)));
 const timeout = 60_000;
-const mutool = join(nativeDirectory, "mutool");
+const mutool = join(nativeDirectory, windows ? "mutool.exe" : "mutool");
 const pdf = fileURLToPath(new URL("./test-fixtures/unicode-metadata.pdf", import.meta.url));
 const invalidSecondPage = fileURLToPath(new URL("./test-fixtures/invalid-second-page.pdf", import.meta.url));
 
@@ -77,6 +78,10 @@ async function withTempDirectory(run: (directory: string) => Promise<void>) {
 
 async function withNodeIOUtils(run: () => Promise<void>) {
   const original = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+  const originalServices = Object.getOwnPropertyDescriptor(globalThis, "Services");
+  Object.defineProperty(globalThis, "Services", {
+    configurable: true, value: { appinfo: { OS: windows ? "WINNT" : "Linux" } },
+  });
   Object.defineProperty(globalThis, "IOUtils", {
     configurable: true,
     value: {
@@ -97,6 +102,8 @@ async function withNodeIOUtils(run: () => Promise<void>) {
   } finally {
     if (original) Object.defineProperty(globalThis, "IOUtils", original);
     else Reflect.deleteProperty(globalThis, "IOUtils");
+    if (originalServices) Object.defineProperty(globalThis, "Services", originalServices);
+    else Reflect.deleteProperty(globalThis, "Services");
   }
 }
 
@@ -148,6 +155,30 @@ test("compression and validation work with spaces and Unicode in input and outpu
   });
 });
 
+test("Windows validation disposes rendered output through the Windows null device", async () => {
+  await withNodeIOUtils(async () => {
+    Object.defineProperty(globalThis, "Services", { configurable: true, value: { appinfo: { OS: "WINNT" } } });
+    let rendered = 0;
+    const windowsSubprocess = {
+      async call({ arguments: args }: { arguments: string[] }) {
+        if (args[0] === "draw") {
+          equal(args[args.indexOf("-o") + 1], "NUL");
+          rendered++;
+        }
+        return {
+          stdin: { async close() {} },
+          stdout: pipe(args[0] === "info" ? "Pages: 1\n" : ""),
+          stderr: pipe(""),
+          async wait() { return { exitCode: 0 }; },
+          kill() {},
+        };
+      },
+    };
+    await validate(windowsSubprocess, "C:\\native tools\\mutool.exe", pdf, pdf);
+    equal(rendered, 2);
+  });
+});
+
 test("validation rejects a rendering failure on a later page of either PDF", async () => {
   await withTempDirectory(async (directory) => {
     const twoPages = join(directory, "two-pages.pdf");
@@ -155,7 +186,7 @@ test("validation rejects a rendering failure on a later page of either PDF", asy
     // This fixture has two pages: page 1 renders, while page 2 has an invalid content stream.
     equal(await documentInfo(subprocess, mutool, invalidSecondPage), 2);
     equal(await documentInfo(subprocess, mutool, twoPages), 2);
-    runMutool(["draw", "-r", "72", "-F", "ppm", "-o", "/dev/null", invalidSecondPage, "1"]);
+    runMutool(["draw", "-r", "72", "-F", "ppm", "-o", windows ? "NUL" : "/dev/null", invalidSecondPage, "1"]);
     await withNodeIOUtils(async () => {
       await rejects(validate(subprocess, mutool, invalidSecondPage, twoPages), { safeCode: "validation" });
       await rejects(validate(subprocess, mutool, twoPages, invalidSecondPage), { safeCode: "validation" });

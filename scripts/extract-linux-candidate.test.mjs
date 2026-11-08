@@ -40,6 +40,70 @@ function fixture(t, alter = () => {}) {
   return { archive, destination: join(directory, "extracted") };
 }
 
+test("the candidate extractor writes the selected Windows executables from the XPI", (t) => {
+  const { archive, destination } = fixture(t, ({ components, native }) => {
+    const windows = join(native, "..", "windows-x86_64");
+    mkdirSync(windows);
+    writeFileSync(join(windows, "mutool.exe"), "abc");
+    writeFileSync(join(windows, "session-lock.exe"), "def");
+    components.platforms["windows-x86_64"] = {
+      os: "WINNT", abi: "x86_64-msvc",
+      artifact: "6f6318fc9c1b286604c1b504ee0cd93d259450dd691544ac534e3ad11134e397",
+      files: [
+        { name: "mutool.exe", path: "windows-x86_64/mutool.exe", sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", executable: true },
+        { name: "session-lock.exe", path: "windows-x86_64/session-lock.exe", sha256: "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34", executable: true },
+      ],
+    };
+  });
+  const manifest = `${destination}-manifest.json`;
+  const result = spawnSync("python3", [extractor, "--platform", "windows-x86_64", "--manifest-output", manifest, archive, destination], { encoding: "utf8" });
+  equal(result.status, 0, result.stderr);
+  equal(JSON.parse(readFileSync(manifest, "utf8")).platforms["windows-x86_64"].os, "WINNT");
+  equal(readFileSync(join(destination, "mutool.exe"), "utf8"), "abc");
+  equal(readFileSync(join(destination, "session-lock.exe"), "utf8"), "def");
+  equal(existsSync(join(destination, "mutool")), false);
+});
+
+test("the Windows candidate extractor refuses filenames colliding case-insensitively", (t) => {
+  const { archive, destination } = fixture(t, ({ components, native }) => {
+    const windows = join(native, "..", "windows-x86_64");
+    mkdirSync(windows);
+    const files = [
+      { name: "mutool.exe", path: "windows-x86_64/mutool.exe", sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", executable: true },
+      { name: "MUTOOL.exe", path: "windows-x86_64/MUTOOL.exe", sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", executable: true },
+      { name: "session-lock.exe", path: "windows-x86_64/session-lock.exe", sha256: "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34", executable: true },
+    ];
+    writeFileSync(join(windows, "mutool.exe"), "abc");
+    writeFileSync(join(windows, "MUTOOL.exe"), "abc");
+    writeFileSync(join(windows, "session-lock.exe"), "def");
+    components.platforms["windows-x86_64"] = {
+      os: "WINNT", abi: "x86_64-msvc", files,
+      artifact: createHash("sha256").update(JSON.stringify(files)).digest("hex"),
+    };
+  });
+  const manifest = `${destination}-manifest.json`;
+  const result = spawnSync("python3", [extractor, "--platform", "windows-x86_64", "--manifest-output", manifest, archive, destination], { encoding: "utf8" });
+  equal(result.status, 1, result.stderr);
+  equal(existsSync(destination), false);
+  equal(existsSync(manifest), false);
+});
+
+test("the Windows candidate extractor rejects Win32 device and trailing-dot names", (t) => {
+  for (const name of ["NUL.txt", "COM1", "mutool.exe.", "CONIN$", "CONOUT$", "CLOCK$", "COM¹.dll", "LPT²"]) {
+    const { archive, destination } = fixture(t, ({ components }) => {
+      const files = [{ name, path: `windows-x86_64/${name}`, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", executable: false }];
+      components.platforms["windows-x86_64"] = {
+        os: "WINNT", abi: "x86_64-msvc", files,
+        artifact: createHash("sha256").update(JSON.stringify(files)).digest("hex"),
+      };
+    });
+    const result = spawnSync("python3", [extractor, "--platform", "windows-x86_64", archive, destination], { encoding: "utf8" });
+    equal(result.status, 1, name);
+    match(result.stderr, /invalid component name/);
+    equal(existsSync(destination), false);
+  }
+});
+
 test("the candidate extractor writes the verified Linux executables from the XPI", (t) => {
   const { archive, destination } = fixture(t);
   const result = spawnSync("python3", [extractor, archive, destination], { encoding: "utf8" });

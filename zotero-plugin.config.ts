@@ -25,11 +25,16 @@ export default defineConfig({
         await mkdir(source, { recursive: true });
         await cp("src", join(source, "src"), { recursive: true });
         await mkdir(join(source, "scripts"), { recursive: true });
-        for (const name of ["inspect-linux-native.py", "extract-linux-candidate.py", "run-linux-candidate-tests.sh"]) {
+        for (const name of [
+          "inspect-linux-native.py", "extract-linux-candidate.py", "run-linux-candidate-tests.sh",
+          "configure-windows-native.py", "inspect-windows-native.py", "record-windows-native.py",
+        ]) {
           await cp(join("scripts", name), join(source, "scripts", name));
         }
         await mkdir(join(source, ".github", "workflows"), { recursive: true });
-        await cp(".github/workflows/linux-candidate.yml", join(source, ".github", "workflows", "linux-candidate.yml"));
+        for (const name of ["linux-candidate.yml", "windows-candidate.yml"]) {
+          await cp(join(".github", "workflows", name), join(source, ".github", "workflows", name));
+        }
         await mkdir(join(source, "typings"), { recursive: true });
         await cp("typings/global.d.ts", join(source, "typings", "global.d.ts"));
         for (const name of [

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { checkNoSymlinks, component, fail, fileHash, join, readResourceBytes } from "./files";
+import { checkNoSymlinks, component, ensurePrivateDirectory, fail, fileHash, join, readResourceBytes } from "./files";
 
 export const CLEAN = [
   "clean", "-ggg", "-z", "-Z", "-f", "-i", "-m", "--structure=keep",
@@ -27,7 +27,9 @@ export async function extractNative(root: string): Promise<Record<string, string
   } catch {
     fail("native-unsupported");
   }
-  if (os !== "Linux" || abi !== "x86_64-gcc3") fail("native-unsupported");
+  if (!((os === "Linux" && abi === "x86_64-gcc3") ||
+        (os === "WINNT" && abi === "x86_64-msvc"))) fail("native-unsupported");
+  const suffix = os === "WINNT" ? ".exe" : "";
   if (!native.platforms || typeof native.platforms !== "object" || Array.isArray(native.platforms)) {
     fail("native-digest-manifest");
   }
@@ -42,20 +44,23 @@ export async function extractNative(root: string): Promise<Record<string, string
   for (const file of platform.files) {
     if (!file || typeof file.name !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(file.name) ||
         file.path !== `${platformId}/${file.name}` || typeof file.sha256 !== "string" ||
-        !/^[a-f0-9]{64}$/.test(file.sha256) || typeof file.executable !== "boolean" || names.has(file.name)) {
+        !/^[a-f0-9]{64}$/.test(file.sha256) || typeof file.executable !== "boolean" ||
+        names.has(os === "WINNT" ? file.name.toLowerCase() : file.name) ||
+        (os === "WINNT" && (file.name.endsWith(".") ||
+          /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(file.name)))) {
       fail("native-digest-manifest");
     }
-    names.add(file.name);
+    names.add(os === "WINNT" ? file.name.toLowerCase() : file.name);
   }
   if (!["mutool", "session-lock"].every((name) =>
-    platform.files.some((file) => file.name === name && file.executable === true),
+    platform.files.some((file) => file.name === name + suffix && file.executable === true),
   )) fail("native-digest-manifest");
   const identity = bytesHash(new TextEncoder().encode(JSON.stringify(platform.files)));
   if (identity !== platform.artifact) fail("native-digest-manifest");
   const profile = Zotero.getProfileDirectory().path;
   const cache = join(profile, "mupdf-compress", platformId, platform.artifact);
   checkNoSymlinks(cache, true);
-  await IOUtils.makeDirectory(cache, { createAncestors: true, permissions: 0o700 });
+  await ensurePrivateDirectory(cache, { privateRoot: join(profile, "mupdf-compress") });
   checkNoSymlinks(cache);
   const paths: Record<string, string> = {};
   for (const file of platform.files) {
@@ -66,10 +71,12 @@ export async function extractNative(root: string): Promise<Record<string, string
       checkNoSymlinks(path, true);
       await IOUtils.write(path, bytes, { mode: "overwrite" });
     }
-    await IOUtils.setPermissions(path, file.executable ? 0o700 : 0o600);
+    if (os !== "WINNT") await IOUtils.setPermissions(path, file.executable ? 0o700 : 0o600);
     if (fileHash(path) !== file.sha256) fail("native-digest-mismatch");
     paths[file.name] = path;
   }
+  paths.mutool = paths["mutool" + suffix];
+  paths["session-lock"] = paths["session-lock" + suffix];
   return paths;
 }
 
@@ -158,7 +165,8 @@ export async function documentInfo(
 
 async function render(subprocess: any, mutoolPath: string, path: string): Promise<void> {
   try {
-    await nativeRun(subprocess, mutoolPath, ["draw", "-r", "72", "-F", "ppm", "-o", "/dev/null", path]);
+    const discard = Services.appinfo.OS === "WINNT" ? "NUL" : "/dev/null";
+    await nativeRun(subprocess, mutoolPath, ["draw", "-r", "72", "-F", "ppm", "-o", discard, path]);
   } catch (error) {
     if ((error as { safeCode?: string }).safeCode === "engine-exit") fail("validation");
     throw error;

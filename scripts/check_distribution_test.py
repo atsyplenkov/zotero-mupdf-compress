@@ -112,6 +112,71 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(result, 1, output)
         self.assertIn("build recipe mismatch", output)
 
+    def add_windows_candidate(self):
+        components = json.loads(self.files["native/components.json"])
+        names = ("mutool.exe", "session-lock.exe")
+        files = []
+        measured = []
+        for name in names:
+            data = f"Windows fixture {name}".encode()
+            checksum = hashlib.sha256(data).hexdigest()
+            files.append({"name": name, "path": f"windows-x86_64/{name}", "sha256": checksum, "executable": True})
+            measured.append({"name": name, "sha256": checksum, "machine": "AMD64",
+                             "osVersion": "6.0", "subsystemVersion": "6.0", "needed": ["kernel32.dll"], "delayImports": []})
+            self.files[f"native/windows-x86_64/{name}"] = data
+            self.files["BUILD-RECORD.md"] += ("\n" + checksum).encode()
+        identity = hashlib.sha256(json.dumps(files, separators=(",", ":")).encode()).hexdigest()
+        components["platforms"]["windows-x86_64"] = {
+            "os": "WINNT", "abi": "x86_64-msvc", "artifact": identity, "files": files,
+        }
+        self.files["native/components.json"] = json.dumps(components).encode()
+        inputs = {
+            "addon/native/build-windows.ps1": "native/build-windows.ps1",
+            "scripts/configure-windows-native.py": "source/scripts/configure-windows-native.py",
+            "scripts/inspect-windows-native.py": "source/scripts/inspect-windows-native.py",
+            "scripts/record-windows-native.py": "source/scripts/record-windows-native.py",
+        }
+        build = {
+            "schemaVersion": 1, "platform": "windows-x86_64", "sourceRevision": "a" * 40,
+            "source": {"url": distribution.MUPDF_SOURCE, "sha256": distribution.MUPDF_SHA256},
+            "helperSourceSha256": hashlib.sha256(self.files["native/session-lock-windows.c"]).hexdigest(),
+            "buildInputs": {key: hashlib.sha256(self.files[value]).hexdigest() for key, value in inputs.items()},
+            "toolchain": {key: "test" for key in ("runner", "runner_version", "os_version", "msbuild", "msvc", "sdk")},
+            "target": "Windows 10 x64", "runtime": "MSVC static CRT (/MT)",
+            "configuration": "test", "commands": ["test"], "files": measured,
+        }
+        self.files["native/windows-x86_64/build-record.json"] = json.dumps(build).encode()
+        self.files["native/windows-x86_64/build-trace.txt"] = b"test trace"
+
+    def test_accepts_windows_candidate_with_matching_records(self):
+        self.add_windows_candidate()
+        result, output = self.check()
+        self.assertEqual(result, 0, output)
+
+    def test_rejects_case_insensitive_windows_component_collisions(self):
+        self.add_windows_candidate()
+        components = json.loads(self.files["native/components.json"])
+        platform = components["platforms"]["windows-x86_64"]
+        extra = dict(platform["files"][0])
+        extra["name"] = "MUTOOL.exe"
+        extra["path"] = "windows-x86_64/MUTOOL.exe"
+        platform["files"].append(extra)
+        platform["artifact"] = hashlib.sha256(json.dumps(platform["files"], separators=(",", ":")).encode()).hexdigest()
+        self.files["native/components.json"] = json.dumps(components).encode()
+        self.files["native/windows-x86_64/MUTOOL.exe"] = self.files["native/windows-x86_64/mutool.exe"]
+        result, output = self.check()
+        self.assertEqual(result, 1, output)
+        self.assertIn("unsafe or duplicate component name", output)
+
+    def test_rejects_windows_executable_with_mismatched_build_record(self):
+        self.add_windows_candidate()
+        build = json.loads(self.files["native/windows-x86_64/build-record.json"])
+        build["files"][0]["sha256"] = "0" * 64
+        self.files["native/windows-x86_64/build-record.json"] = json.dumps(build).encode()
+        result, output = self.check()
+        self.assertEqual(result, 1, output)
+        self.assertIn("Windows build record digest mismatch", output)
+
     def test_rejects_compatibility_beyond_zotero_10(self):
         manifest = json.loads(self.files["manifest.json"])
         manifest["applications"]["zotero"]["strict_max_version"] = "11.*"

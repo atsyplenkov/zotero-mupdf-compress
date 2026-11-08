@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { equal, match, notEqual, rejects } from "node:assert/strict";
+import { equal, ifError, match, notEqual, rejects } from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,6 +14,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // Use the real extension modules with adapters for Gecko's host APIs.
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (process.platform === "win32" && specifier === "./windows.ts") {
+      return nextResolve(new URL("./test-fixtures/windows-node-host.mjs", import.meta.url).href, context);
+    }
     if (specifier === "./files" && context.parentURL === new URL("./engine.ts", import.meta.url).href) {
       return nextResolve("./files.ts", context);
     }
@@ -142,9 +146,91 @@ test("Linux x86-64 extracts the declared engine and session-lock helper", async 
     const paths = await extractNative(root);
     equal(await readFile(paths.mutool, "utf8"), "linux mutool\n");
     equal(await readFile(paths["session-lock"], "utf8"), "linux lock\n");
-    match(paths.mutool, new RegExp(`^${profile}/.*linux-x86_64/.+`));
-    equal((await stat(paths.mutool)).mode & 0o777, 0o700);
-    equal((await stat(paths["session-lock"])).mode & 0o777, 0o700);
+    equal(paths.mutool.startsWith(join(profile, "mupdf-compress", "linux-x86_64") + (process.platform === "win32" ? "\\" : "/")), true);
+    if (process.platform !== "win32") {
+      equal((await stat(paths.mutool)).mode & 0o777, 0o700);
+      equal((await stat(paths["session-lock"])).mode & 0o777, 0o700);
+    }
+  });
+});
+
+async function withWindows(run: Parameters<typeof withGecko>[0]) {
+  await withGecko(async (root, profile, fixture) => {
+    fixture.appinfo.OS = "WINNT";
+    fixture.appinfo.XPCOMABI = "x86_64-msvc";
+    const files = [
+      { name: "mutool.exe", path: "windows-x86_64/mutool.exe", sha256: "fa2ed69c710c52b807f0ae2ce398fe011dc9180a6380621ae9fb20580fc85677", executable: true },
+      { name: "session-lock.exe", path: "windows-x86_64/session-lock.exe", sha256: "0a94d8257b8fbf868bc9572abfb27e486cf80dfb6d9829585ab9ab9ada92958d", executable: true },
+    ];
+    fixture.manifest.platforms["windows-x86_64"] = {
+      os: "WINNT", abi: "x86_64-msvc",
+      artifact: createHash("sha256").update(JSON.stringify(files)).digest("hex"), files,
+    };
+    await mkdir(join(fixture.resource, "native", "windows-x86_64"));
+    await writeFile(join(fixture.resource, "native", "windows-x86_64", "mutool.exe"), "linux mutool\n");
+    await writeFile(join(fixture.resource, "native", "windows-x86_64", "session-lock.exe"), "linux lock\n");
+    await fixture.saveManifest();
+    await run(root, profile, fixture);
+  });
+}
+
+test("Windows x64 extracts .exe components with the existing engine and helper keys", async () => {
+  await withWindows(async (root, profile, fixture) => {
+    const paths = await extractNative(root);
+    equal(await readFile(paths.mutool, "utf8"), "linux mutool\n");
+    equal(await readFile(paths["session-lock"], "utf8"), "linux lock\n");
+    equal(paths.mutool, join(profile, "mupdf-compress", "windows-x86_64", fixture.manifest.platforms["windows-x86_64"].artifact, "mutool.exe"));
+    equal(paths["session-lock"].endsWith("session-lock.exe"), true);
+  });
+});
+
+test("Windows cached executables cannot hide missing or corrupt package components", async () => {
+  await withWindows(async (root, _profile, fixture) => {
+    const first = await extractNative(root);
+    await writeFile(first.mutool, "stale engine");
+    await writeFile(first["session-lock"], "stale helper");
+    const repaired = await extractNative(root);
+    equal(await readFile(repaired.mutool, "utf8"), "linux mutool\n");
+    equal(await readFile(repaired["session-lock"], "utf8"), "linux lock\n");
+    const helper = join(fixture.resource, "native", "windows-x86_64", "session-lock.exe");
+    await writeFile(helper, "corrupt helper");
+    await rejects(extractNative(root), { safeCode: "native-digest-mismatch" });
+    await rm(helper);
+    await rejects(extractNative(root));
+  });
+});
+
+test("Windows component names cannot alias the same case-insensitive cache file", async () => {
+  await withWindows(async (root, profile, fixture) => {
+    const platform = fixture.manifest.platforms["windows-x86_64"];
+    platform.files.push({ ...platform.files[0], name: "MUTOOL.EXE", path: "windows-x86_64/MUTOOL.EXE" });
+    platform.artifact = createHash("sha256").update(JSON.stringify(platform.files)).digest("hex");
+    await fixture.saveManifest();
+    await rejects(extractNative(root), { safeCode: "native-digest-manifest" });
+    equal(existsSync(join(profile, "mupdf-compress")), false);
+  });
+});
+
+test("Windows device names and trailing-dot aliases are refused before caching", async () => {
+  for (const name of ["NUL", "CON.txt", "COM1.dll", "mutool.exe.", "CONIN$", "CONOUT$", "CLOCK$", "COM¹.dll", "LPT²"]) {
+    await withWindows(async (root, profile, fixture) => {
+      const platform = fixture.manifest.platforms["windows-x86_64"];
+      platform.files.push({ ...platform.files[0], name, path: `windows-x86_64/${name}` });
+      platform.artifact = createHash("sha256").update(JSON.stringify(platform.files)).digest("hex");
+      await fixture.saveManifest();
+      await rejects(extractNative(root), { safeCode: "native-digest-manifest" });
+      equal(existsSync(join(profile, "mupdf-compress")), false);
+    });
+  }
+});
+
+test("Windows ARM64 is refused even if a manifest declares matching components", async () => {
+  await withWindows(async (root, profile, fixture) => {
+    fixture.appinfo.XPCOMABI = "aarch64-msvc";
+    fixture.manifest.platforms["windows-x86_64"].abi = "aarch64-msvc";
+    await fixture.saveManifest();
+    await rejects(extractNative(root), { safeCode: "native-unsupported" });
+    equal(existsSync(join(profile, "mupdf-compress")), false);
   });
 });
 
@@ -225,7 +311,7 @@ test("the component set is selected by its declared OS and ABI", async () => {
     await fixture.saveManifest();
     const paths = await extractNative(root);
     equal(await readFile(paths.mutool, "utf8"), "linux mutool\n");
-    match(paths.mutool, /\/linux-amd64\//);
+    match(paths.mutool, /[\\/]linux-amd64[\\/]/);
   });
 });
 
@@ -258,7 +344,7 @@ test("each repeated extraction repairs altered executables and required runtime 
     await fixture.saveManifest();
     const first = await extractNative(root);
     equal(await readFile(first["libsupport.so"], "utf8"), "shared runtime\n");
-    equal((await stat(first["libsupport.so"])).mode & 0o777, 0o600);
+    if (process.platform !== "win32") equal((await stat(first["libsupport.so"])).mode & 0o777, 0o600);
     await writeFile(first.mutool, "stale engine\n");
     await writeFile(first["session-lock"], "stale helper\n");
     await writeFile(first["libsupport.so"], "stale runtime\n");
@@ -304,7 +390,7 @@ test("a symlinked cache directory is rejected without touching its target", asyn
     await mkdir(target);
     const cacheParent = join(profile, "mupdf-compress", "linux-x86_64");
     await mkdir(cacheParent, { recursive: true });
-    await symlink(target, join(cacheParent, fixture.manifest.platforms["linux-x86_64"].artifact));
+    await symlink(target, join(cacheParent, fixture.manifest.platforms["linux-x86_64"].artifact), process.platform === "win32" ? "junction" : "dir");
     await rejects(extractNative(root), { safeCode: "symlink-path" });
     equal(existsSync(join(target, "mutool")), false);
     equal(existsSync(join(target, "session-lock")), false);
@@ -327,6 +413,29 @@ test("malformed component entries fail with a manifest error before caching", as
     await fixture.saveManifest();
     await rejects(extractNative(root), { safeCode: "native-digest-manifest" });
     equal(existsSync(join(profile, "mupdf-compress")), false);
+  });
+});
+
+test("the candidate's native engine executes after extraction through the runtime API", {
+  skip: !process.env.MUPDF_NATIVE_DIR || !process.env.MUPDF_NATIVE_MANIFEST,
+}, async () => {
+  await withGecko(async (root, _profile, fixture) => {
+    const directory = process.env.MUPDF_NATIVE_DIR!;
+    const native = JSON.parse(await readFile(process.env.MUPDF_NATIVE_MANIFEST!, "utf8"));
+    const windows = process.platform === "win32";
+    const platformId = windows ? "windows-x86_64" : "linux-x86_64";
+    fixture.appinfo.OS = windows ? "WINNT" : "Linux";
+    fixture.appinfo.XPCOMABI = windows ? "x86_64-msvc" : "x86_64-gcc3";
+    await mkdir(join(fixture.resource, "native", platformId), { recursive: true });
+    for (const file of native.platforms[platformId].files) {
+      await copyFile(join(directory, file.name), join(fixture.resource, "native", platformId, file.name));
+    }
+    await writeFile(join(fixture.resource, "native", "components.json"), JSON.stringify(native));
+    const paths = await extractNative(root);
+    const result = spawnSync(paths.mutool, ["-v"], { encoding: "utf8", timeout: 10_000 });
+    ifError(result.error);
+    equal(result.status, 0, result.stderr);
+    match(result.stdout + result.stderr, /mutool version 1\.28\.5/);
   });
 });
 

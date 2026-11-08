@@ -34,20 +34,24 @@ the PDF; some files cannot be made smaller.
 ## Installation
 
 > [!IMPORTANT]
-> This development candidate includes **Linux x86-64** components only and
-> targets **glibc 2.35**. Windows, macOS, Linux ARM64, and non-glibc systems are
-> not supported by this candidate. Stable publication is blocked until the
-> complete four-platform package is available.
+> The checked-in development candidate includes **Linux x86-64** components
+> and targets **glibc 2.35**. The separate Windows candidate workflow builds
+> Windows x64 components for its test XPI; it has not established compatibility
+> until a successful Windows run is available. macOS, Linux ARM64, and non-glibc
+> systems are not supported by these candidates. Stable publication is blocked
+> until the complete four-platform package is available.
 >
 > The manifest and update metadata allow **Zotero 10.x** only. Earlier
 > host-built versions were tested with Zotero 10.0.6; native candidate checks
 > do **not** constitute testing this build inside Zotero. See the
 > [native build record](addon/BUILD-RECORD.md) for measured requirements.
 
-1. For this development candidate, download the artifact from a successful
+1. For a development candidate, download the artifact from a successful
    [Linux candidate Actions run](https://github.com/atsyplenkov/zotero-mupdf-compress/actions/workflows/linux-candidate.yml)
-   and extract `mu-pdf-compress_<version>.xpi`. Existing published releases
-   have their own build records and may contain the earlier host-built engine.
+   or [Windows candidate Actions run](https://github.com/atsyplenkov/zotero-mupdf-compress/actions/workflows/windows-candidate.yml),
+   then extract `mu-pdf-compress_<version>.xpi`. Each candidate tests its own
+   platform. Existing published releases have their own build records and may
+   contain the earlier host-built engine.
 2. In Zotero, open **Tools → Plugins**.
 3. Click the gear button, choose **Install Plugin From File…**, and select the
    downloaded `.xpi`.
@@ -148,9 +152,35 @@ slice. [Issue #34](https://github.com/atsyplenkov/zotero-mupdf-compress/issues/3
 tracks the agreed security patch. A final release must rebuild and retest that
 agreed source on every supported target; this candidate is not a security fix.
 
+### Windows development candidates
+
+The read-only `windows-candidate` workflow targets `windows-2022` with Visual
+Studio 2022 x64, the Windows 10 SDK, and the static MSVC runtime. It builds from
+the same pinned, unpatched MuPDF archive as the Linux candidate. It checks the
+x64 PE headers and direct system-library imports, then packages a test XPI and
+runs engine, lock, cleanup, path, and extraction tests on the components
+extracted from that XPI. A successful Actions artifact carries the source
+archive, build record, checksums, and native test output. The record gives the
+runner image and toolchain versions and the measured imports for that run.
+
+Windows session storage requires local drive paths with protected, owner-only
+ACLs; UNC/device paths and reparse points are refused. An empty `<UUID>.lock`
+file remains beside each session directory after cleanup, so one small
+filesystem entry accumulates per session. These files contain no PDF data.
+They retain the lock identity while a session directory is removed; their
+presence is never used as proof that a session is abandoned.
+
+Windows 10 remains a compatibility target, not a tested operating system. The
+Node tests replace Gecko's js-ctypes binding with a separately compiled test
+host; they do not test the real Gecko binding. That host is not included in the
+XPI, and lock tests use the production helper extracted from the candidate. A
+successful Windows native/adapter run would not be a Zotero integration test;
+no Windows or Zotero result is claimed before a successful run is available.
+The issue #34 source patch remains required before release.
+
 ### Stable releases
 
-Stable publication currently refuses this Linux-only package before any release
+Stable publication currently refuses an incomplete package before any release
 writes. The remaining platform work must supply all four native component sets
 and their required verification before publication can be enabled.
 

@@ -2,7 +2,7 @@
 
 import { CLEAN, documentInfo, extractNative, nativeRun, validate } from "./engine";
 import { formatByteSize, formatSavedPercent } from "./file-size";
-import { attachmentPath, checkNoSymlinks, fail, fileHash, join, loadModule, localFile, log, uuid } from "./files";
+import { attachmentPath, checkNoSymlinks, copyPrivateFile, ensurePrivateDirectory, fail, fileHash, join, loadModule, localFile, log, replaceFile, uuid } from "./files";
 import { classifyMove, planCompress, planRevert, reconcileUnverified, type LiveHash } from "./recovery";
 import { type Lock, cleanSession, initSession, releaseLock } from "./session";
 import { eligible } from "./target";
@@ -130,7 +130,7 @@ async function currentMatches(item: Zotero.Item, path: string, hash: string): Pr
 async function prepareOutputDirectory(path: string): Promise<string> {
   const outputDir = join(localFile(path).parent.path, ".mupdf-compress-" + uuid());
   checkNoSymlinks(outputDir, true);
-  await IOUtils.makeDirectory(outputDir, { permissions: 0o700, ignoreExisting: false });
+  await ensurePrivateDirectory(outputDir, { ignoreExisting: false });
   return outputDir;
 }
 
@@ -173,7 +173,7 @@ async function moveIntoPlace(item: Zotero.Item, path: string, output: string, be
   try {
     await hook("duringReplace", { item, path, output, intendedHash });
     requireLock();
-    await IOUtils.move(output, path);
+    await replaceFile(output, path);
   } catch {
     return classifyMove(beforeHash, intendedHash, readLive(path));
   }
@@ -400,8 +400,7 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
       createdBackup = join(state.sessionDir, uuid() + ".pdf");
       const beforeHash = fileHash(path);
       try {
-        await IOUtils.copy(path, createdBackup, { noOverwrite: true });
-        await IOUtils.setPermissions(createdBackup, 0o600);
+        await copyPrivateFile(path, createdBackup);
         if (fileHash(createdBackup) !== beforeHash) fail("backup");
       } catch (error) {
         if (!(error as { safeCode?: string }).safeCode) fail("backup");
@@ -446,7 +445,6 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
         compressedHash: intendedHash,
         compressedSize,
       };
-      await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
       return await applyMove("Compress", item, record, output, beforeHash, intendedHash, beforeBytes, compressedSize);
     }
 
@@ -506,12 +504,11 @@ async function runOperation(item: Zotero.Item | null, action: Action): Promise<O
     }
     outputDir = await prepareOutputDirectory(path);
     output = join(outputDir, "output.pdf");
-    await IOUtils.copy(previous.backupPath, output, { noOverwrite: true });
+    await copyPrivateFile(previous.backupPath, output);
     if (fileHash(output) !== previous.originalHash) fail("backup-invalid");
     requireLock();
     if (sharedReaderOpen(path, item)) fail("open");
     if (!(await currentMatches(item, path, previous.compressedHash))) fail("revert-changed");
-    await IOUtils.setPermissions(output, localFile(path).permissions & 0o777);
     return await applyMove("Revert", item, previous, output, previous.compressedHash, previous.originalHash, beforeBytes, previous.originalSize);
   } catch (error) {
     const code = (error as { safeCode?: string }).safeCode || "";

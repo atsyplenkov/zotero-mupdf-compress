@@ -1,0 +1,72 @@
+name: Windows candidate
+on:
+  pull_request:
+  push:
+    branches: [main, 'native-candidate/**']
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  windows-candidate:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 26.12.1
+      - name: Dependencies
+        run: npm ci
+      - name: Build Windows native programs
+        env:
+          NATIVE_SOURCE_REVISION: ${{ github.sha }}
+        run: ./addon/native/build-windows.ps1
+      - name: Build and inspect the candidate XPI
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Extension build failed' }
+          python scripts/check-distribution.py
+          if ($LASTEXITCODE -ne 0) { throw 'Distribution checks failed' }
+          $version = node -p "require('./package.json').version"
+          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
+          New-Item -ItemType Directory $candidate | Out-Null
+          $xpi = Join-Path $candidate "mu-pdf-compress_${version}.xpi"
+          Copy-Item .scaffold/build/mu-pdf-compress.xpi $xpi
+          Copy-Item .scaffold/build/update.json $candidate
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'mupdf-windows-native/mupdf-1.28.5-source.tar.gz') $candidate
+          Get-FileHash -Algorithm SHA256 $xpi
+          python scripts/extract-linux-candidate.py --platform windows-x86_64 --manifest-output (Join-Path $env:RUNNER_TEMP 'candidate-components.json') $xpi (Join-Path $env:RUNNER_TEMP 'candidate-native')
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate extraction failed' }
+          python scripts/inspect-windows-native.py (Join-Path $env:RUNNER_TEMP 'candidate-native') --candidate $xpi --source-revision $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate PE inspection failed' }
+      - name: Test extracted candidate programs and host adapters
+        run: |
+          $env:MUPDF_NATIVE_DIR = Join-Path $env:RUNNER_TEMP 'candidate-native'
+          $env:MUPDF_NATIVE_MANIFEST = Join-Path $env:RUNNER_TEMP 'candidate-components.json'
+          $env:MUPDF_WINDOWS_TEST_HOST = Join-Path $env:RUNNER_TEMP 'mupdf-windows-native/windows-test-host.exe'
+          node --test src/engine.test.ts src/session-lock.test.ts src/session.test.ts src/native-extraction.test.ts src/files.test.ts 2>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'candidate/windows-tests.txt')
+          if ($LASTEXITCODE -ne 0) { throw 'Windows candidate tests failed' }
+      - name: Prepare the tested candidate
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'candidate'
+          Compress-Archive -Path addon/BUILD-RECORD.md, addon/native/components.json, addon/native/windows-x86_64 -DestinationPath (Join-Path $candidate 'native-build.zip')
+          Get-ChildItem $candidate | Get-FileHash -Algorithm SHA256
+      - name: Upload the tested candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x86_64-candidate
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

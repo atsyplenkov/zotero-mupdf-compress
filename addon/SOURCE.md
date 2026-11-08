@@ -32,7 +32,7 @@ a standalone build tree.
 
 The project repository is
 <https://github.com/atsyplenkov/zotero-mupdf-compress>. Development candidates
-record their build revision in `native/linux-x86_64/build-record.json`; they
+record their build revision in `native/<platform>/build-record.json`; they
 are not stable releases and need not have a version tag.
 
 ## MuPDF source
@@ -64,6 +64,21 @@ requirements are recorded separately for each executable. Native test logs
 identify the environments used; they do not establish Zotero integration or
 support for every Linux distribution.
 
+A Windows x64 development candidate additionally contains
+`native/windows-x86_64/mutool.exe` and `native/windows-x86_64/session-lock.exe`.
+`native/build-windows.ps1` builds the same verified source archive on the
+Windows 2022 Actions image with Visual Studio 2022, x64, and the static MSVC
+runtime. `source/scripts/configure-windows-native.py` changes the extracted
+MSBuild project runtime settings for all dependencies; it does not patch the
+MuPDF C/C++ source. `source/scripts/inspect-windows-native.py` checks PE
+architecture and direct imports, and `source/scripts/record-windows-native.py`
+records build inputs, commands, tool versions, revision, and measurements.
+`source/.github/workflows/windows-candidate.yml` shows the candidate build and
+native/adapter checks. Those adapter tests use a separate test-only helper and
+not Gecko's js-ctypes binding; the packaged helper is used for the native lock
+tests. The Windows target is Windows 10, not a claim that a Windows 10 machine
+or Zotero has been tested.
+
 The source patch requested by issue #34 is intentionally not included in this
 development slice. Final release requires rebuilding and retesting the agreed
 source and patches on all supported targets.
@@ -73,6 +88,8 @@ source and patches on all supported targets.
 `native/session-lock.c` in this XPI is the complete source of the
 `native/linux-x86_64/session-lock` helper. It has no PDF functionality and is
 licensed AGPL-3.0-or-later. The same build recipe compiles it.
+`native/session-lock-windows.c` is the corresponding Windows helper source,
+compiled by `native/build-windows.ps1` when a Windows candidate is built.
 
 ## Licenses and notices
 
