@@ -232,6 +232,9 @@ int wmain(int argc, wchar_t **argv)
         return test_private_directory(argv[2], 1, !wcscmp(argv[3], L"new")) ? 0 : fail();
     if (argc == 3 && !wcscmp(argv[1], L"--test-verify-private-directory"))
         return test_private_directory(argv[2], 0, 0) ? 0 : fail();
+    if (argc == 4 && !wcscmp(argv[1], L"--test-move-file"))
+        return test_check_path(argv[2], 0) && test_check_path(argv[3], 1) &&
+               MoveFileExW(argv[2], argv[3], 0) ? 0 : fail();
     if (argc == 4 && !wcscmp(argv[1], L"--test-replace-file"))
         return test_check_path(argv[2], 0) && test_check_path(argv[3], 0) &&
                ReplaceFileW(argv[2], argv[3], NULL, 0, NULL, NULL) ? 0 : fail();

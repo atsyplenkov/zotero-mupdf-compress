@@ -2,7 +2,7 @@
 
 import { deepEqual, equal, ifError, match, notEqual, rejects, throws } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, chmod, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as nodeJoin } from "node:path";
@@ -177,9 +177,12 @@ for (const scenario of [
       notEqual(before, privateAcl);
       if (scenario.sibling) {
         const sibling = nodeJoin(folder, "replacement.pdf");
-        await rename(output, sibling);
+        const moved = spawnSync(helper, ["--test-move-file", output, sibling], { encoding: "utf8" });
+        ifError(moved.error);
+        equal(moved.status, 0, moved.stderr);
         output = sibling;
-        equal(descriptor(output), privateAcl, "Moving the output must keep its bytes private");
+        const access = (sddl: string) => sddl.replace(/D:P?/, "D:").replaceAll(";ID;", ";;");
+        equal(access(descriptor(output)), access(privateAcl), "Moving the output must keep its bytes private");
       }
       const result = spawnSync(helper, ["--test-replace-file", attachment, output], { encoding: "utf8" });
       ifError(result.error);
