@@ -115,10 +115,7 @@ Run the same checks used by CI:
 make test
 ```
 
-This runs linting, type checking, tests, the build, and distribution checks. For
-manual testing, see the
-[isolated Zotero environment](docs/testing/zotero-environment.md) and
-[PDF test corpus](docs/testing/pdf-corpus.md).
+This runs linting, type checking, tests, the build, and distribution checks.
 
 ## License
 

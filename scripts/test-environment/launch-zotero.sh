@@ -10,7 +10,7 @@ for tool in bwrap python hyprctl; do
   command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }
 done
 [[ -n ${DISPLAY:-} ]] || { echo 'An X11 DISPLAY is required.' >&2; exit 1; }
-[[ -f "$APP/app/application.ini" ]] || { echo "Download/extract Zotero 10.0.6 first; see docs/testing/zotero-environment.md" >&2; exit 1; }
+[[ -f "$APP/app/application.ini" ]] || { echo "Download and extract Zotero 10.0.6 to $APP first" >&2; exit 1; }
 grep -qx 'Version=10.0.6' "$APP/app/application.ini" || { echo 'Expected Zotero 10.0.6' >&2; exit 1; }
 # Session-only rule scoped to this launcher's unique WM_CLASS, not personal
 # Zotero windows. Install before creating a window; never switch workspaces.

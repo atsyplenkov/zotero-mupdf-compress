@@ -2,7 +2,7 @@ docs/*
 !docs/adr/
 docs/adr/*
 !docs/adr/0001-session-backups-and-revert.md
-!docs/testing/
+!docs/agents/
 .local-test/
 
 /*.xpi
@@ -13,3 +13,6 @@ node_modules/
 .env
 *.tsbuildinfo
 typings/i10n.d.ts
+
+!.agents/
+/.agents/skills/stageshow/
