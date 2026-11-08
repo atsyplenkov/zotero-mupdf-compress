@@ -18,9 +18,9 @@ prerelease and build suffixes. A preparation-only request stops before creating
 a tag, pushing, dispatching Actions, or changing a GitHub release. A request to
 edit this skill or merge a feature does not authorize a release.
 
-Read `AGENTS.md`, the Releases section of `README.md`,
-`.github/workflows/release.yml`, and `scripts/publish-release.mjs` before work.
-They define the current checks and publication behavior.
+Read `AGENTS.md`, `Makefile`, `.github/workflows/release.yml`, and
+`scripts/publish-release.mjs` before work. They define the current checks and
+publication behavior.
 
 ## 1. Validate the release
 
