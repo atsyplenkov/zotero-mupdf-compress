@@ -97,12 +97,12 @@ the current session keeps using its original folder.
 
 ## Development
 
-Tool versions are pinned in [`mise.toml`](mise.toml) and
-[`package.json`](package.json).
+Install [mise](https://mise.jdx.dev/) and GNU Make first. Tool versions are
+pinned in [`mise.toml`](mise.toml) and [`package.json`](package.json).
+`make setup` installs the pinned tools and npm dependencies.
 
 ```sh
-mise install
-npm ci
+make setup
 make build
 ```
 

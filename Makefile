@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 NAME := mu-pdf-compress
-VERSION := $(shell node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
+VERSION = $(shell node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")
 
-XPI := $(NAME)_$(VERSION).xpi
+XPI = $(NAME)_$(VERSION).xpi
 BUILT_XPI := .scaffold/build/$(NAME).xpi
 
-.PHONY: build test
+.PHONY: setup build test
 
 build:
 	npm run build
@@ -15,3 +15,7 @@ build:
 
 test:
 	mise run check
+
+setup:
+	mise install
+	mise exec -- npm ci
