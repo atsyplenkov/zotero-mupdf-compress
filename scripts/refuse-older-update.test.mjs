@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { setupGit } from "./release-test-fixture.mjs";
 
 const script = fileURLToPath(new URL("./refuse-older-update.mjs", import.meta.url));
 const addonID = "mupdf-compress@atsyplenkov.github.io";
@@ -31,6 +32,94 @@ function runGuard(version, body) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+function tagFixture(t) {
+  const directory = mkdtempSync(join(tmpdir(), "mupdf-tag-test-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(join(directory, "package.json"), JSON.stringify({ version: "1.0.0" }));
+  const git = setupGit(directory);
+  const run = (env = {}, version = "1.0.0", cwd = directory) => spawnSync(process.execPath, [script, version, "--check-tag"], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/tags/v1.0.0", ...env },
+  });
+  return { directory, git, run };
+}
+
+test("tag guard accepts a matching stable tag in fetched main history", (t) => {
+  const fixture = tagFixture(t);
+  const result = fixture.run();
+  equal(result.status, 0, result.stderr);
+});
+
+test("tag guard rejects a tagged commit outside fetched main history", (t) => {
+  const fixture = tagFixture(t);
+  fixture.git("checkout", "-b", "unmerged");
+  fixture.git("commit", "--allow-empty", "-m", "Unmerged change");
+  fixture.git("tag", "-f", "v1.0.0");
+  const result = fixture.run();
+  notEqual(result.status, 0, result.stderr);
+});
+
+test("tag guard rejects shallow history even when main and the tag match", (t) => {
+  const fixture = tagFixture(t);
+  fixture.git("clone", "--depth=1", `file://${fixture.directory}`, "shallow");
+  const result = fixture.run({}, "1.0.0", join(fixture.directory, "shallow"));
+  notEqual(result.status, 0, result.stderr);
+});
+
+test("tag guard requires the candidate to match package.json", (t) => {
+  const fixture = tagFixture(t);
+  fixture.git("tag", "v2.0.0");
+  const result = fixture.run({ GITHUB_REF: "refs/tags/v2.0.0" }, "2.0.0");
+  notEqual(result.status, 0, result.stderr);
+});
+
+test("tag guard accepts annotated tags at older commits in fetched main", (t) => {
+  const fixture = tagFixture(t);
+  fixture.git("tag", "-f", "-a", "v1.0.0", "-m", "Stable version");
+  const target = fixture.git("rev-parse", "HEAD");
+  fixture.git("commit", "--allow-empty", "-m", "Later main change");
+  fixture.git("fetch", "origin", "refs/heads/main:refs/remotes/origin/main");
+  fixture.git("checkout", "--detach", target);
+  for (const event of ["push", "workflow_dispatch"]) {
+    const result = fixture.run({ GITHUB_EVENT_NAME: event });
+    equal(result.status, 0, result.stderr);
+  }
+});
+
+test("tag guard rejects missing tags, wrong commits, and missing main for pushes and dispatches", async (t) => {
+  for (const problem of ["missing tag", "wrong commit", "missing main", "unmerged", "non-commit tag"]) {
+    await t.test(problem, (child) => {
+      const fixture = tagFixture(child);
+      if (problem === "missing tag") fixture.git("tag", "-d", "v1.0.0");
+      if (problem === "wrong commit") fixture.git("commit", "--allow-empty", "-m", "Wrong checkout");
+      if (problem === "missing main") fixture.git("update-ref", "-d", "refs/remotes/origin/main");
+      if (problem === "unmerged") {
+        fixture.git("checkout", "-b", "unmerged");
+        fixture.git("commit", "--allow-empty", "-m", "Unmerged change");
+        fixture.git("tag", "-f", "v1.0.0");
+      }
+      if (problem === "non-commit tag") {
+        fixture.git("tag", "-f", "v1.0.0", fixture.git("hash-object", "-w", "package.json"));
+      }
+      for (const event of ["push", "workflow_dispatch"]) {
+        const result = fixture.run({ GITHUB_EVENT_NAME: event });
+        notEqual(result.status, 0, `${problem} ${event}: ${result.stderr}`);
+      }
+    });
+  }
+});
+
+test("tag guard rejects noncanonical package versions during manual dispatch", (t) => {
+  const fixture = tagFixture(t);
+  for (const version of ["01.0.0", "1.0", "1.0.0-beta.1", "1.0.0+build"]) {
+    writeFileSync(join(fixture.directory, "package.json"), JSON.stringify({ version }));
+    fixture.git("tag", `v${version}`);
+    const result = fixture.run({ GITHUB_EVENT_NAME: "workflow_dispatch" }, version);
+    notEqual(result.status, 0, `${version}: ${result.stderr}`);
+  }
+});
 
 function workflowCommands(name) {
   const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
@@ -137,48 +226,22 @@ test("rejects malformed existing manifests and invalid published versions", () =
   }
 });
 
-test("tag check accepts only the matching push tag or a dispatch at the tagged commit", () => {
-  const commands = workflowCommands("Require the version tag");
-  for (const [description, event, ref, head, tag, expected] of [
-    ["matching push tag", "push", "refs/tags/v1.0.0", "abc", "abc", 0],
-    ["different push tag", "push", "refs/tags/v0.9.0", "abc", "abc", 1],
-    ["prerelease push tag", "push", "refs/tags/v1.0.0-beta.1", "abc", "abc", 1],
-    ["dispatch at tagged commit", "workflow_dispatch", "refs/heads/main", "abc", "abc", 0],
-    ["dispatch at another commit", "workflow_dispatch", "refs/heads/main", "abc", "def", 1],
-    ["missing version tag", "workflow_dispatch", "refs/heads/main", "abc", "missing", 1],
+test("tag guard accepts only a matching push tag or a manual dispatch", (t) => {
+  const fixture = tagFixture(t);
+  for (const [event, ref, expected] of [
+    ["push", "refs/tags/v1.0.0", 0],
+    ["push", "refs/tags/v0.9.0", 1],
+    ["push", "refs/tags/v01.0.0", 1],
+    ["push", "refs/tags/v1.0.0-beta.1", 1],
+    ["push", "refs/tags/v1.0.0+build", 1],
+    ["push", "refs/heads/main", 1],
+    ["workflow_dispatch", "refs/heads/main", 0],
+    ["workflow_dispatch", "refs/tags/v1.0.0", 0],
+    ["pull_request", "refs/heads/main", 1],
+    ["", "", 1],
   ]) {
-    const directory = mkdtempSync(join(tmpdir(), "mupdf-tag-test-"));
-    try {
-      const bin = join(directory, "bin");
-      mkdirSync(bin);
-      writeFileSync(join(directory, "package.json"), JSON.stringify({ version: "1.0.0" }));
-      writeFileSync(join(bin, "git"), `#!/bin/bash\n
-        if [[ "$1" != "rev-parse" ]]; then exit 2; fi
-        if [[ "$2" == "HEAD" ]]; then
-          printf '%s' "$MOCK_HEAD"
-        elif [[ "$2" == "--verify" && "$3" == "refs/tags/v1.0.0^{}" && "$MOCK_TAG" != "missing" ]]; then
-          printf '%s' "$MOCK_TAG"
-        else
-          exit 1
-        fi
-      `, { mode: 0o755 });
-      const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", commands], {
-        cwd: directory,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env.PATH}`,
-          GITHUB_EVENT_NAME: event,
-          GITHUB_REF: ref,
-          MOCK_HEAD: head,
-          MOCK_TAG: tag,
-        },
-      });
-      if (result.error) throw result.error;
-      equal(result.status, expected, `${description}: ${result.stderr}`);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    const result = fixture.run({ GITHUB_EVENT_NAME: event, GITHUB_REF: ref });
+    equal(result.status, expected, `${event} ${ref}: ${result.stderr}`);
   }
 });
 

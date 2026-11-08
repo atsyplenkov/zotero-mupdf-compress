@@ -117,6 +117,31 @@ make test
 
 This runs linting, type checking, tests, the build, and distribution checks.
 
+### Stable releases
+
+The release workflow accepts only canonical stable tags such as `v0.1.6`, with
+no leading zeroes, prerelease suffix, or build metadata. The tag must match the
+version in `package.json` and point to the checked-out commit. Annotated tags
+are checked by their target commit.
+
+That commit must already be in `main`'s history. The workflow fetches complete
+Git history and checks ancestry against `origin/main`; missing main history or
+a shallow checkout is rejected. Tags on unmerged branches are not eligible.
+An older commit in main can still be released, provided no newer version has
+already been published or offered in the update feed.
+
+Pushing an eligible version tag starts the workflow. Creating a local tag
+without pushing it does not start GitHub Actions. For a manual retry, select
+the existing version tag, or a branch whose selected commit has that matching
+tag. Manual dispatch does not create a version tag or bypass the version,
+checked-out commit, or main-history checks.
+
+Eligibility is checked before publication writes, including on retries.
+Publication remains serialized. Once a version is public, its assets are not
+replaced: a retry validates and reuses those assets to repair the update feed.
+A successful eligibility check does not prove platform compatibility; the
+Linux-only limitations described under Installation still apply.
+
 ## License
 
 Licensed under [AGPL-3.0-or-later](LICENSE), without warranty. The bundled MuPDF

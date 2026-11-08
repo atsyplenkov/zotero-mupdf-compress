@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { setupGit } from "./release-test-fixture.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
 const publisher = fileURLToPath(new URL("./publish-release.mjs", import.meta.url));
@@ -113,16 +114,20 @@ function setup(t, overrides = {}) {
   const save = (value) => writeFileSync(stateFile, JSON.stringify(value));
   const read = () => JSON.parse(readFileSync(stateFile, "utf8"));
   save(state);
-  const run = () => {
+  const git = setupGit(directory);
+  const run = (env = {}) => {
     const result = spawnSync(process.execPath, [publisher], {
       cwd: directory,
       encoding: "utf8",
-      env: { ...process.env, FAKE_STATE: stateFile, PATH: `${bin}:${process.env.PATH}` },
+      env: {
+        ...process.env, FAKE_STATE: stateFile, PATH: `${bin}:${process.env.PATH}`,
+        GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/tags/v1.0.0", ...env,
+      },
     });
     if (result.error) throw result.error;
     return result;
   };
-  return { run, read, save };
+  return { directory, git, run, read, save };
 }
 
 function release(state, tag) {
@@ -137,6 +142,65 @@ function asset(releaseInfo, name) {
 test("the release workflow uses the retry-safe publisher", () => {
   doesNotMatch(workflow, /npx zotero-plugin release/);
   match(workflow, /node scripts\/publish-release\.mjs/);
+  match(workflow, /fetch-depth: 0/);
+  match(workflow, /cancel-in-progress: false/);
+  match(workflow, /queue: max/);
+  const check = workflow.indexOf('node scripts/refuse-older-update.mjs "$version" --check-tag');
+  ok(check >= 0 && check < workflow.indexOf("      - name: Refuse an older publish"));
+});
+
+test("an unmerged tagged commit fails before builds or publication commands", (t) => {
+  const fixture = setup(t);
+  fixture.git("checkout", "-b", "unmerged");
+  fixture.git("commit", "--allow-empty", "-m", "Unmerged change");
+  fixture.git("tag", "-f", "v1.0.0");
+  const before = fixture.read();
+  const result = fixture.run();
+  notEqual(result.status, 0, result.stderr);
+  deepEqual(fixture.read(), before);
+});
+
+test("ineligible tags and incomplete history leave existing releases untouched", async (t) => {
+  for (const problem of ["missing tag", "wrong commit", "wrong push tag", "invalid version", "missing main", "shallow history"]) {
+    await t.test(problem, (child) => {
+      const fixture = setup(child, { releases: [{
+        tag_name: "release", draft: false, prerelease: true,
+        assets: [{ id: 1000, name: "update.json", state: "uploaded", data: Buffer.from("old feed").toString("base64") }],
+      }] });
+      if (problem === "missing tag") fixture.git("tag", "-d", "v1.0.0");
+      if (problem === "wrong commit") fixture.git("commit", "--allow-empty", "-m", "Wrong checkout");
+      if (problem === "invalid version") {
+        writeFileSync(join(fixture.directory, "package.json"), JSON.stringify({ version: "1.0.0-beta.1", config: { addonID } }));
+        fixture.git("tag", "v1.0.0-beta.1");
+      }
+      if (problem === "missing main") fixture.git("update-ref", "-d", "refs/remotes/origin/main");
+      if (problem === "shallow history") {
+        writeFileSync(join(fixture.directory, ".git/shallow"), `${fixture.git("rev-parse", "HEAD")}\n`);
+      }
+      const before = fixture.read();
+      for (const event of problem === "wrong push tag" ? ["push"] : ["push", "workflow_dispatch"]) {
+        const result = fixture.run({
+          GITHUB_EVENT_NAME: event,
+          GITHUB_REF: problem === "wrong push tag" ? "refs/tags/v2.0.0" : "refs/tags/v1.0.0",
+        });
+        notEqual(result.status, 0, `${event}: ${result.stderr}`);
+        deepEqual(fixture.read(), before);
+      }
+    });
+  }
+});
+
+test("a manual retry rechecks main history before touching a published release or feed", (t) => {
+  const fixture = setup(t);
+  const first = fixture.run();
+  equal(first.status, 0, first.stderr);
+  fixture.git("checkout", "-b", "unmerged");
+  fixture.git("commit", "--allow-empty", "-m", "Unmerged change");
+  fixture.git("tag", "-f", "v1.0.0");
+  const before = fixture.read();
+  const retry = fixture.run({ GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/unmerged" });
+  notEqual(retry.status, 0, retry.stderr);
+  deepEqual(fixture.read(), before);
 });
 
 test("a failed feed upload can be retried without rebuilding or changing a public version", (t) => {
@@ -152,7 +216,7 @@ test("a failed feed upload can be retried without rebuilding or changing a publi
   equal(published.builds, 1);
   const saved = structuredClone(version.assets);
   equal(release(published, "release").assets.length, 0);
-  const retry = fixture.run();
+  const retry = fixture.run({ GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main" });
   equal(retry.status, 0, retry.stderr);
   const after = fixture.read();
   equal(after.builds, 1);

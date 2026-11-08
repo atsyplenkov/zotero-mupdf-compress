@@ -105,7 +105,7 @@ function downloadAssets(release) {
 }
 
 try {
-  run(process.execPath, ["scripts/refuse-older-update.mjs", version]);
+  run(process.execPath, ["scripts/refuse-older-update.mjs", version, "--check-tag"]);
   let items = releases();
   checkHistory(items);
   let release = findRelease(items, tag);
