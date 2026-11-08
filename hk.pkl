@@ -54,6 +54,7 @@ local slow = (fast) {
   }
   ["generated"] {
     glob = List(
+      ".gitattributes",
       "addon/**",
       "src/**/*.ts",
       "src/test-fixtures/**",

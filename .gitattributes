@@ -1,0 +1,5 @@
+# Preserve the source bytes recorded for the bundled Linux native programs.
+/addon/native/session-lock.c text eol=lf
+/addon/native/build-engine.sh text eol=lf
+/addon/native/linux.Dockerfile text eol=lf
+/scripts/inspect-linux-native.py text eol=lf

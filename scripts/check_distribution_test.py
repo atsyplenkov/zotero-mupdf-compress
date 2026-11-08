@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -46,6 +47,20 @@ class DistributionTests(unittest.TestCase):
         return result, output.getvalue()
 
     def test_accepts_complete_candidate(self):
+        result, output = self.check()
+        self.assertEqual(result, 0, output)
+
+    def test_windows_checkout_preserves_recorded_native_build_inputs(self):
+        record = json.loads(self.files["native/linux-x86_64/build-record.json"])
+        paths = ["addon/native/session-lock.c", *record["buildInputs"]]
+        checkout = Path(self.temporary.name) / "checkout"
+        subprocess.run([
+            "git", "-c", "core.autocrlf=true", "-c", "core.eol=crlf",
+            "checkout-index", f"--prefix={checkout.as_posix()}/", "--", *paths,
+        ], cwd=distribution.REPO, check=True, capture_output=True)
+        for path in paths:
+            entry = path.removeprefix("addon/") if path.startswith("addon/") else f"source/{path}"
+            self.files[entry] = (checkout / path).read_bytes()
         result, output = self.check()
         self.assertEqual(result, 0, output)
 
