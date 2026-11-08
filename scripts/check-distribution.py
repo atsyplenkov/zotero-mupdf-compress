@@ -123,6 +123,10 @@ def main() -> int:
                     "update.json update_link is not the GitHub release XPI",
                 )
                 require(
+                    entry.get("update_hash") == "sha512:" + hashlib.sha512(XPI.read_bytes()).hexdigest(),
+                    "update.json update_hash does not match the built XPI",
+                )
+                require(
                     compatibility.get("strict_min_version") == zotero.get("strict_min_version"),
                     "update.json strict_min_version differs from the manifest",
                 )

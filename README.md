@@ -55,13 +55,17 @@ match the version in `package.json` and point to the checked-out commit, includi
 when the workflow is started manually. Prerelease versions are rejected. The
 workflow publishes `mu-pdf-compress.xpi` on the version tag and refreshes
 `update.json` on the stable `release` tag. It refuses to replace a feed that
-already offers a newer version. Only a missing feed (HTTP 404) permits a first
-publication; other download errors and malformed feeds stop publication.
+already offers a newer version, and it checks published version releases before
+accepting a missing feed (HTTP 404). Other download errors and malformed feeds
+stop publication.
 The update manifest carries the same `strict_min_version` and
 `strict_max_version` as the XPI manifest. An installed copy can then update
 inside Zotero. A fresh install still uses the XPI from the version release.
-The workflow also uploads the verified MuPDF source archive to the version
-release alongside the XPI.
+The workflow first builds and checks the XPI, verifies the MuPDF source archive,
+then uploads both files and the matching update manifest to a draft release. It
+publishes the draft before refreshing the stable feed. A retry uses the files
+from an already published version release and leaves them unchanged. The source
+archive remains alongside the XPI on that release.
 
 Copies installed with the old `example.invalid` update URL need one manual
 installation of an XPI containing the real update URL. Subsequent releases can
