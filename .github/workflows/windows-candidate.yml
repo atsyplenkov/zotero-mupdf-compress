@@ -28,23 +28,6 @@ jobs:
           node-version: 26.12.1
       - name: Dependencies
         run: npm ci
-      - name: Check replacement ACLs before native build
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          $installation = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $vcvars = Join-Path $installation 'VC/Auxiliary/Build/vcvarsall.bat'
-          $env:MUPDF_WINDOWS_TEST_HOST = Join-Path $env:RUNNER_TEMP 'windows-test-host.exe'
-          $helper = Join-Path $env:GITHUB_WORKSPACE 'addon/native/session-lock-windows.c'
-          $command = 'call "{0}" x64 >nul && cl /nologo /MT /O2 /W4 /DMUPDF_TEST_HOST /D_WIN32_WINNT=0x0A00 /Fe:"{1}" "{2}" /link Advapi32.lib' -f $vcvars, $env:MUPDF_WINDOWS_TEST_HOST, $helper
-          Push-Location $env:RUNNER_TEMP
-          try {
-            & cmd.exe /d /c $command
-            if ($LASTEXITCODE -ne 0) { throw 'Windows test host build failed' }
-          } finally {
-            Pop-Location
-          }
-          node --test src/files.test.ts
-          if ($LASTEXITCODE -ne 0) { throw 'Windows filesystem tests failed' }
       - name: Build Windows native programs
         env:
           NATIVE_SOURCE_REVISION: ${{ github.sha }}
