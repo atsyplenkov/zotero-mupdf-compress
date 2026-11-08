@@ -57,6 +57,21 @@ test("the candidate extractor refuses an incorrect platform artifact identity", 
   equal(existsSync(destination), false);
 });
 
+test("candidate component names obey the runtime filename rules", (t) => {
+  for (const name of [".hidden", "_support.so", "-support.so"]) {
+    const { archive, destination } = fixture(t, ({ components, native }) => {
+      const platform = components.platforms["linux-x86_64"];
+      platform.files.push({ name, path: `linux-x86_64/${name}`, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", executable: false });
+      platform.artifact = createHash("sha256").update(JSON.stringify(platform.files)).digest("hex");
+      writeFileSync(join(native, name), "abc");
+    });
+    const result = spawnSync("python3", [extractor, archive, destination], { encoding: "utf8" });
+    equal(result.status, 1, name);
+    match(result.stderr, /invalid component name/);
+    equal(existsSync(destination), false);
+  }
+});
+
 test("the candidate extractor refuses an altered executable", (t) => {
   const { archive, destination } = fixture(t, ({ native }) => {
     writeFileSync(join(native, "mutool"), "altered");

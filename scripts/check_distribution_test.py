@@ -63,6 +63,22 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(result, 1, output)
         self.assertIn("artifact identity", output)
 
+    def test_rejects_component_names_not_accepted_by_runtime(self):
+        components = json.loads(self.files["native/components.json"])
+        platform = components["platforms"]["linux-x86_64"]
+        name = "_support.so"
+        content = b"required runtime file"
+        platform["files"].append({
+            "name": name, "path": f"linux-x86_64/{name}",
+            "sha256": hashlib.sha256(content).hexdigest(), "executable": False,
+        })
+        platform["artifact"] = hashlib.sha256(json.dumps(platform["files"], separators=(",", ":")).encode()).hexdigest()
+        self.files["native/components.json"] = json.dumps(components).encode()
+        self.files[f"native/linux-x86_64/{name}"] = content
+        result, output = self.check()
+        self.assertEqual(result, 1, output)
+        self.assertIn("unsafe or duplicate component name", output)
+
     def test_rejects_absent_required_runtime_file(self):
         components = json.loads(self.files["native/components.json"])
         platform = components["platforms"]["linux-x86_64"]

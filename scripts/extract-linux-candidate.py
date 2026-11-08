@@ -32,7 +32,7 @@ def extract(xpi: pathlib.Path, destination: pathlib.Path) -> None:
         verified: dict[str, tuple[bytes, bool]] = {}
         for component in files:
             name = component["name"]
-            if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", name) or name in (".", ".."):
+            if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name):
                 raise ValueError("invalid component name")
             if component["path"] != f"linux-x86_64/{name}" or name in verified:
                 raise ValueError("invalid component path")

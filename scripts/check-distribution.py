@@ -180,7 +180,7 @@ def main() -> int:
             seen = set()
             for component in files:
                 name = component.get("name", "")
-                safe_name = bool(re.fullmatch(r"[a-zA-Z0-9_-][a-zA-Z0-9._-]*", name))
+                safe_name = bool(re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", name))
                 require(safe_name and name not in seen, f"{platform_id} has an unsafe or duplicate component name")
                 seen.add(name)
                 path = component.get("path", "")
