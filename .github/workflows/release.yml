@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Toolchain
-        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785
         with:
           cache: false
           persist_github_token: false
